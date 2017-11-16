@@ -15,17 +15,16 @@
 package discovery
 
 import (
-	"time"
-
-	"github.com/golang/protobuf/ptypes"
 	proxyconfig "istio.io/api/proxy/v1/config"
-	"istio.io/istio/pilot/adapter/config/memory"
-	"istio.io/istio/pilot/adapter/serviceregistry/aggregate"
 	"istio.io/istio/pilot/model"
-	"istio.io/istio/pilot/platform"
 	"istio.io/istio/pilot/proxy"
 	"istio.io/istio/pilot/proxy/envoy"
+	"github.com/golang/protobuf/ptypes"
+	"time"
 	"istio.io/istio/pilot/test/mock"
+	"istio.io/istio/pilot/platform"
+	"istio.io/istio/pilot/adapter/serviceregistry/aggregate"
+	"istio.io/istio/pilot/adapter/config/memory"
 )
 
 var (
@@ -35,14 +34,6 @@ var (
 		EnableCaching:   true}
 )
 
-func makeMeshConfig() *proxyconfig.MeshConfig {
-	mesh := proxy.DefaultMeshConfig()
-	mesh.MixerAddress = "istio-mixer.istio-system:9091"
-	mesh.RdsRefreshDelay = ptypes.DurationProto(10 * time.Millisecond)
-	return &mesh
-}
-
-// mockController specifies a mock Controller for testing
 type mockController struct{}
 
 func (c *mockController) AppendServiceHandler(f func(*model.Service, model.Event)) error {
@@ -55,7 +46,7 @@ func (c *mockController) AppendInstanceHandler(f func(*model.ServiceInstance, mo
 
 func (c *mockController) Run(<-chan struct{}) {}
 
-func buildMockController() *aggregate.Controller {
+func makeTestController() *aggregate.Controller {
 	discovery1 := mock.NewDiscovery(
 		map[string]*model.Service{
 			mock.HelloService.Hostname:   mock.HelloService,
@@ -89,54 +80,36 @@ func buildMockController() *aggregate.Controller {
 	return ctls
 }
 
-// PilotConfig gathers the dependencies of the Pilot discovery service into a single configuration structure.
-type PilotConfig struct {
-	ConfigCache      model.ConfigStoreCache
-	ServiceDiscovery model.ServiceDiscovery
-	ServiceAccounts  model.ServiceAccounts
-	Controller       model.Controller
-	Mesh             *proxyconfig.MeshConfig
+func makeTestDiscoveryOption() envoy.DiscoveryServiceOptions {
+	return defaultDiscoveryOptions
 }
 
-// WithInMemoryConfigCache updates the config to use an in-memory cache, backed by the given config store.
-func (cfg *PilotConfig) WithInMemoryConfigCache(configStore model.ConfigStore) *PilotConfig {
-	cfg.ConfigCache = memory.NewController(configStore)
-	return cfg
+func makeTestMeshConfig() *proxyconfig.MeshConfig {
+	mesh := proxy.DefaultMeshConfig()
+	mesh.MixerAddress = "istio-mixer.istio-system:9091"
+	mesh.RdsRefreshDelay = ptypes.DurationProto(10 * time.Millisecond)
+	return &mesh
 }
 
-// WithMockDiscovery updates the config to use the mock Discovery
-func (cfg *PilotConfig) WithMockDiscovery() *PilotConfig {
-	serviceDiscovery := mock.Discovery
-	serviceDiscovery.ClearErrors()
+// NewPilot creates a new test instance of the Pilot discovery service using an in-memory config store, mock
+// discovery.
+func NewPilot() (*envoy.DiscoveryService, error) {
+	store := memory.Make(model.IstioConfigTypes)
+	configCache := memory.NewController(store)
+	mockDiscovery := mock.Discovery
+	mockDiscovery.ClearErrors()
+	mesh := makeTestMeshConfig()
+	controller := makeTestController()
 
-	cfg.ServiceDiscovery = serviceDiscovery
-	cfg.ServiceAccounts = serviceDiscovery
-	return cfg
-}
-
-// WithMockMesh updates the config with a mock Mesh for testing.
-func (cfg *PilotConfig) WithMockMesh() *PilotConfig {
-	cfg.Mesh = makeMeshConfig()
-	return cfg
-}
-
-// WithMockServiceController updates the config with a mock Mesh for testing.
-func (cfg *PilotConfig) WithMockServiceController() *PilotConfig {
-	cfg.Controller = buildMockController()
-	return cfg
-}
-
-// NewPilot creates a new test instance of the Pilot discovery service based on the given configuration.
-func NewPilot(cfg *PilotConfig) (*envoy.DiscoveryService, error) {
 	environment := proxy.Environment{
-		ServiceDiscovery: cfg.ServiceDiscovery,
-		ServiceAccounts:  cfg.ServiceAccounts,
-		IstioConfigStore: model.MakeIstioStore(cfg.ConfigCache),
-		Mesh:             cfg.Mesh}
+		ServiceDiscovery: mockDiscovery,
+		ServiceAccounts:  mockDiscovery,
+		IstioConfigStore: model.MakeIstioStore(configCache),
+		Mesh:             mesh}
 
 	return envoy.NewDiscoveryService(
-		cfg.Controller,
-		cfg.ConfigCache,
+		controller,
+		configCache,
 		environment,
-		defaultDiscoveryOptions)
+		makeTestDiscoveryOption())
 }
