@@ -12,18 +12,33 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-package agent
+package reserveport
 
 import (
-	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pkg/test/util"
+	"fmt"
 )
 
-// Application represents a locally running application with exposed ports.
-type Application interface {
-	// GetPorts provides a list of ports that are actively listening for the application.
-	GetPorts() model.PortList
+type managerImpl struct {
+	pool  []ReservedPort
+	index int
 }
 
-// ApplicationFactory is a function that manufactures a running application.
-type ApplicationFactory func(urlInterceptor util.URLInterceptor) (Application, StopFunc, error)
+func (m *managerImpl) ReservePort() (ReservedPort, error) {
+	if m.index >= len(m.pool) {
+		return nil, fmt.Errorf("no ports available")
+	}
+	p := m.pool[m.index]
+	if p == nil {
+		return nil, fmt.Errorf("attempting to reserve port after manager closed")
+	}
+	m.pool[m.index] = nil
+	m.index++
+	return p, nil
+}
+
+func (m *managerImpl) Close() (err error) {
+	pool := m.pool
+	m.pool = nil
+	m.index = 0
+	return freePool(pool)
+}

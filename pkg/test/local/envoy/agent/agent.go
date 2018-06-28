@@ -18,6 +18,7 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 
 	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/test/util"
 )
 
 // Agent controls the startup of a local application and an Envoy proxy, thereby integrating the application into a local Istio service mesh.
@@ -43,8 +44,11 @@ type Agent struct {
 
 // Start starts Envoy and the application.
 func (a *Agent) Start() (err error) {
+	// Create a delegating URL interceptor. By default, URLs will be unaltered.
+	urlInterceptor := &util.DelegatingURLInterceptor{}
+
 	// Create and start the backend application
-	a.app, a.appStopFunc, err = a.AppFactory()
+	a.app, a.appStopFunc, err = a.AppFactory(urlInterceptor)
 	if err != nil {
 		return err
 	}
@@ -53,6 +57,12 @@ func (a *Agent) Start() (err error) {
 	a.proxy, a.proxyStopFunc, err = a.ProxyFactory(a.ServiceName, a.app)
 	if err != nil {
 		return err
+	}
+
+	// If the proxy implements util.URLInterceptor, use it as the delegate interceptor.
+	proxyInterceptor, ok := a.proxy.(util.URLInterceptor)
+	if ok {
+		urlInterceptor.SetDelegate(proxyInterceptor)
 	}
 
 	// Now add a service entry for this agent.

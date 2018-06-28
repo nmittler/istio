@@ -16,8 +16,9 @@ package echo
 
 import (
 	"istio.io/istio/pilot/pkg/model"
-	"istio.io/istio/pilot/test/server/echo"
 	"istio.io/istio/pkg/test/local/envoy/agent"
+	"istio.io/istio/pkg/test/service/echo"
+	"istio.io/istio/pkg/test/util"
 )
 
 // Factory is a factory for echo applications.
@@ -29,7 +30,7 @@ type Factory struct {
 }
 
 // NewApplication is an agent.ApplicationFactory function that manufactures echo applications.
-func (f *Factory) NewApplication() (agent.Application, agent.StopFunc, error) {
+func (f *Factory) NewApplication(urlInterceptor util.URLInterceptor) (agent.Application, agent.StopFunc, error) {
 
 	// Make a copy of the port list.
 	ports := make(model.PortList, len(f.Ports))
@@ -39,10 +40,11 @@ func (f *Factory) NewApplication() (agent.Application, agent.StopFunc, error) {
 	}
 
 	app := &echo.Application{
-		Ports:   ports,
-		TLSCert: f.TLSCert,
-		TLSCKey: f.TLSCKey,
-		Version: f.Version,
+		Ports:          ports,
+		TLSCert:        f.TLSCert,
+		TLSCKey:        f.TLSCKey,
+		Version:        f.Version,
+		URLInterceptor: urlInterceptor,
 	}
 	if err := app.Start(); err != nil {
 		return nil, nil, err

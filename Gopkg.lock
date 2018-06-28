@@ -545,6 +545,18 @@
   revision = "0e7658f8ee99ee5aa683e2a032b8880091b7a055"
 
 [[projects]]
+  branch = "master"
+  name = "github.com/gxed/GoEndian"
+  packages = ["."]
+  revision = "0f5c6873267e5abf306ffcdfcfa4bf77517ef4a7"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/gxed/eventfd"
+  packages = ["."]
+  revision = "80a92cca79a8041496ccc9dd773fcb52a57ec6f9"
+
+[[projects]]
   name = "github.com/hashicorp/consul"
   packages = ["api"]
   revision = "9a494b5fb9c86180a5702e29c485df1507a47198"
@@ -654,6 +666,17 @@
   version = "v1.0"
 
 [[projects]]
+  name = "github.com/ipfs/go-log"
+  packages = [
+    ".",
+    "tracer",
+    "tracer/wire",
+    "writer"
+  ]
+  revision = "5dc2060baaf8db344f31dafd852340b93811d03f"
+  version = "v1.5.3"
+
+[[projects]]
   branch = "master"
   name = "github.com/istio/tools"
   packages = ["protoc-gen-docs"]
@@ -683,6 +706,22 @@
   revision = "b84e30acd515aadc4b783ad4ff83aff3299bdfe0"
 
 [[projects]]
+  name = "github.com/libp2p/go-reuseport"
+  packages = [
+    ".",
+    "poll",
+    "singlepoll"
+  ]
+  revision = "2b9dda1feae6520af5cbfd0f8175569e5da925c7"
+  version = "v0.1.15"
+
+[[projects]]
+  name = "github.com/libp2p/go-sockaddr"
+  packages = ["net"]
+  revision = "5c3ac7e71ec1941a0c2ed4271535d9427feb829c"
+  version = "v1.0.3"
+
+[[projects]]
   name = "github.com/lyft/protoc-gen-validate"
   packages = ["validate"]
   revision = "930a67cf7ba41b9d9436ad7a1be70a5d5ff6e1fc"
@@ -697,6 +736,18 @@
     "jwriter"
   ]
   revision = "8b799c424f57fa123fc63a99d6383bc6e4c02578"
+
+[[projects]]
+  name = "github.com/mattn/go-colorable"
+  packages = ["."]
+  revision = "167de6bfdfba052fa6b2d3664c8f5272e23c9072"
+  version = "v0.0.9"
+
+[[projects]]
+  name = "github.com/mattn/go-isatty"
+  packages = ["."]
+  revision = "0360b2af4f38e8d38c7fce2a9f4e702702d73a39"
+  version = "v0.0.3"
 
 [[projects]]
   name = "github.com/matttproud/golang_protobuf_extensions"
@@ -1022,6 +1073,12 @@
   packages = ["metrics"]
   revision = "4267858c0679cd4e47cefed8d7f70fd386cfb567"
   version = "v1.4.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/whyrusleeping/go-logging"
+  packages = ["."]
+  revision = "0457bb6b88fc1973573aaf6b5145d8d3ae972390"
 
 [[projects]]
   branch = "master"
@@ -1663,6 +1720,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "8b50503cfe77b6c8586e91e03b2d62d7da84d82483558a371b8b4d1e9db84227"
+  inputs-digest = "ca5124490fe44073347c7e8412397f537d8c9646d39c987bc5f620c7b57bca75"
   solver-name = "gps-cdcl"
   solver-version = 1

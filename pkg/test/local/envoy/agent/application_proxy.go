@@ -15,6 +15,8 @@
 package agent
 
 import (
+	"fmt"
+
 	"istio.io/istio/pilot/pkg/model"
 )
 
@@ -25,7 +27,7 @@ type ApplicationProxy interface {
 	// GetAdminPort returns the Envoy administration port for this proxy.
 	GetAdminPort() int
 	// GetPorts returns a list of port mappings between Envoy and the backend application.
-	GetPorts() []MappedPort
+	GetPorts() []*MappedPort
 }
 
 // MappedPort provides a single port mapping between an Envoy proxy and its backend application.
@@ -38,3 +40,13 @@ type MappedPort struct {
 
 // ApplicationProxyFactory is a function that manufactures ApplicationProxy instances.
 type ApplicationProxyFactory func(serviceName string, app Application) (ApplicationProxy, StopFunc, error)
+
+// FindFirstPortForProtocol is a utility method to simplify lookup of a port for a given protocol.
+func FindFirstPortForProtocol(proxy ApplicationProxy, protocol model.Protocol) (*MappedPort, error) {
+	for _, port := range proxy.GetPorts() {
+		if port.Protocol == protocol {
+			return port, nil
+		}
+	}
+	return nil, fmt.Errorf("no port found matching protocol %v", protocol)
+}
