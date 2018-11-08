@@ -432,16 +432,14 @@ func getLocalIP() string {
 
 // newEndpointWithAccount is a helper for IstioEndpoint creation. Creates endpoints with
 // port name "http", with the given IP, service account and a 'version' label.
-func newEndpointWithAccount(ip, account, version string) []*model.IstioEndpoint {
-	return []*model.IstioEndpoint{
-		&model.IstioEndpoint{
-			Address:         ip,
-			ServicePortName: "http-main",
-			EndpointPort:    80,
-			Labels:          map[string]string{"version": version},
-			UID:             "uid1",
-			ServiceAccount:  account,
-		},
+func newEndpointWithAccount(ip, account, version string) *model.IstioEndpoint {
+	return &model.IstioEndpoint{
+		Address:         ip,
+		ServicePortName: "http-main",
+		EndpointPort:    80,
+		Labels:          map[string]string{"version": version},
+		UID:             "uid1",
+		ServiceAccount:  account,
 	}
 }
 

@@ -14,9 +14,9 @@
 package v2_test
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/envoyproxy/go-control-plane/envoy/api/v2/endpoint"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -48,20 +48,28 @@ func TestEds(t *testing.T) {
 	// will be checked in the direct request test
 	addUdsEndpoint(server)
 
-	adsc := adsConnectAndWait(t, 0x0a0a0a0a)
-	defer adsc.Close()
+	conn := adsConnectAndWait(t, 0x0a0a0a0a)
+	defer conn.Close()
 
-	t.Run("TCPEndpoints", func(t *testing.T) {
-		testTCPEndpoints("127.0.0.1", adsc, t)
+	//_ = server.EnvoyXdsServer.MemRegistry.AddEndpoint(edsIncSvc,
+	//	"http-main", 0, "127.0.0.1", 80)
+
+	//server.EnvoyXdsServer.MemRegistry.AddEndpoint(edsIncSvc,
+	//	newEndpointWithAccount("127.0.0.1", "hello-sa", "v1"))
+	/*t.Run("TCPEndpoints", func(t *testing.T) {
+		testTCPEndpoints("127.0.0.1", conn, t)
+	})*/
+	/*t.Run("UDSEndpoints", func(t *testing.T) {
+		testUdsEndpoints(server, conn, t)
+	})*/
+	/*t.Run("PushIncremental", func(t *testing.T) {
+		edsUpdateInc(server, conn, t)
+	})*/
+	t.Run("EndpointDelete", func(t *testing.T) {
+		testEndpointDelete(server, conn, t)
 	})
-	t.Run("UDSEndpoints", func(t *testing.T) {
-		testUdsEndpoints(server, adsc, t)
-	})
-	t.Run("PushIncremental", func(t *testing.T) {
-		edsUpdateInc(server, adsc, t)
-	})
-	t.Run("Push", func(t *testing.T) {
-		edsUpdates(server, adsc, t)
+	/*t.Run("Push", func(t *testing.T) {
+		edsUpdates(server, conn, t)
 	})
 	// Test using 0.8 request, without per/route mixer. Typically this is
 	// 30% faster than 1.0 config style. Keeping the test to track fixes and
@@ -82,43 +90,43 @@ func TestEds(t *testing.T) {
 	})
 	t.Run("CDSSave", func(t *testing.T) {
 		// Moved from cds_test, using new client
-		if len(adsc.Clusters) == 0 {
+		if len(conn.Clusters) == 0 {
 			t.Error("No clusters in ADS response")
 		}
-		strResponse, _ := json.MarshalIndent(adsc.Clusters, " ", " ")
+		strResponse, _ := json.MarshalIndent(conn.Clusters, " ", " ")
 		_ = ioutil.WriteFile(util.IstioOut+"/cdsv2_sidecar.json", []byte(strResponse), 0644)
 
-	})
+	})*/
 }
 
 func adsConnectAndWait(t *testing.T, ip int) *adsc.ADSC {
-	adsc, err := adsc.Dial(util.MockPilotGrpcAddr, "", &adsc.Config{
+	conn, err := adsc.Dial(util.MockPilotGrpcAddr, "", &adsc.Config{
 		IP: testIp(uint32(ip)),
 	})
 	if err != nil {
 		t.Fatal("Error connecting ", err)
 	}
-	adsc.Watch()
-	_, err = adsc.Wait("rds", 10*time.Second)
+	conn.Watch()
+	_, err = conn.Wait("rds", 10*time.Second)
 	if err != nil {
 		t.Fatal("Error getting initial config ", err)
 	}
 
-	if len(adsc.EDS) == 0 {
+	if len(conn.EDS) == 0 {
 		t.Fatal("No endpoints")
 	}
-	return adsc
+	return conn
 }
 
 // Verify server sends the endpoint. This check for a single endpoint with the given
 // address.
-func testTCPEndpoints(expected string, adsc *adsc.ADSC, t *testing.T) {
-	lbe, f := adsc.EDS["outbound|8080||eds.test.svc.cluster.local"]
-	if !f || len(lbe.Endpoints) == 0 {
-		t.Fatal("No lb endpoints ", adsc.EndpointsJSON())
+func testTCPEndpoints(expected string, conn *adsc.ADSC, t *testing.T) {
+	loadAssignments, f := conn.EDS["outbound|8080||eds.test.svc.cluster.local"]
+	if !f || len(loadAssignments.Endpoints) == 0 {
+		t.Fatal("No lb endpoints ", conn.EndpointsJSON())
 	}
 	total := 0
-	for _, lbe := range lbe.Endpoints {
+	for _, lbe := range loadAssignments.Endpoints {
 		for _, e := range lbe.LbEndpoints {
 			total++
 			if expected == e.Endpoint.Address.GetSocketAddress().Address {
@@ -126,18 +134,18 @@ func testTCPEndpoints(expected string, adsc *adsc.ADSC, t *testing.T) {
 			}
 		}
 	}
-	t.Errorf("Expecting %s got %v", expected, lbe.Endpoints[0].LbEndpoints)
+	t.Errorf("Expecting %s got %v", expected, loadAssignments.Endpoints[0].LbEndpoints)
 	if total != 1 {
 		t.Error("Expecting 1, got ", total)
 	}
 }
 
 // Verify server sends UDS endpoints
-func testUdsEndpoints(server *bootstrap.Server, adsc *adsc.ADSC, t *testing.T) {
+func testUdsEndpoints(_ *bootstrap.Server, conn *adsc.ADSC, t *testing.T) {
 	// Check the UDS endpoint ( used to be separate test - but using old unused GRPC method)
-	// The new test also verifies CDS is pusing the UDS cluster, since adsc.EDS is
+	// The new test also verifies CDS is pusing the UDS cluster, since conn.EDS is
 	// populated using CDS response
-	lbe, f := adsc.EDS["outbound|0||localuds.cluster.local"]
+	lbe, f := conn.EDS["outbound|0||localuds.cluster.local"]
 	if !f || len(lbe.Endpoints) == 0 {
 		t.Error("No UDS lb endpoints")
 	} else {
@@ -154,7 +162,7 @@ func testUdsEndpoints(server *bootstrap.Server, adsc *adsc.ADSC, t *testing.T) {
 }
 
 // Update
-func edsUpdates(server *bootstrap.Server, adsc *adsc.ADSC, t *testing.T) {
+func edsUpdates(server *bootstrap.Server, conn *adsc.ADSC, t *testing.T) {
 
 	// Old style (non-incremental)
 	server.EnvoyXdsServer.MemRegistry.AddInstance(edsIncSvc, &model.ServiceInstance{
@@ -175,11 +183,11 @@ func edsUpdates(server *bootstrap.Server, adsc *adsc.ADSC, t *testing.T) {
 	v2.AdsPushAll(server.EnvoyXdsServer)
 	// will trigger recompute and push
 
-	_, err := adsc.Wait("eds", 5*time.Second)
+	_, err := conn.Wait("eds", 5*time.Second)
 	if err != nil {
 		t.Fatal("EDS push failed", err)
 	}
-	testTCPEndpoints("127.0.0.3", adsc, t)
+	testTCPEndpoints("127.0.0.3", conn, t)
 }
 
 // This test must be run in isolation, can't be parallelized with any other v2 test.
@@ -188,73 +196,146 @@ func edsUpdates(server *bootstrap.Server, adsc *adsc.ADSC, t *testing.T) {
 // - just endpoint changes -> incremental
 // - service account changes -> full ( in future: CDS only )
 // - label changes -> full
-func edsUpdateInc(server *bootstrap.Server, adsc *adsc.ADSC, t *testing.T) {
+func edsUpdateInc(server *bootstrap.Server, conn *adsc.ADSC, t *testing.T) {
 
 	// TODO: set endpoints for a different cluster (new shard)
 
 	// Verify initial state
-	testTCPEndpoints("127.0.0.1", adsc, t)
+	testTCPEndpoints("127.0.0.1", conn, t)
 
-	adsc.WaitClear() // make sure there are no pending pushes.
+	conn.WaitClear() // make sure there are no pending pushes.
 
 	// Equivalent with the event generated by K8S watching the Service.
 	// Will trigger a push.
 	server.EnvoyXdsServer.MemRegistry.SetEndpoints(edsIncSvc,
 		newEndpointWithAccount("127.0.0.2", "hello-sa", "v1"))
 
-	upd, err := adsc.Wait("", 5*time.Second)
+	upd, err := conn.Wait("", 5*time.Second)
 	if err != nil {
 		t.Fatal("Incremental push failed", err)
 	}
 	if upd != "eds" {
 		t.Error("Expecting EDS only update, got", upd)
-		_, err = adsc.Wait("lds", 5*time.Second)
+		_, err = conn.Wait("lds", 5*time.Second)
 		if err != nil {
 			t.Fatal("Incremental push failed", err)
 		}
 	}
 
-	testTCPEndpoints("127.0.0.2", adsc, t)
+	testTCPEndpoints("127.0.0.2", conn, t)
 
 	// Update the endpoint with different SA - expect full
 	server.EnvoyXdsServer.MemRegistry.SetEndpoints(edsIncSvc,
 		newEndpointWithAccount("127.0.0.3", "account2", "v1"))
-	upd, err = adsc.Wait("", 5*time.Second)
+	upd, err = conn.Wait("", 5*time.Second)
 	if upd != "cds" || err != nil {
 		t.Fatal("Expecting full push after service account update", err, upd)
 	}
-	adsc.Wait("lds", 5*time.Second)
-	testTCPEndpoints("127.0.0.3", adsc, t)
+	conn.Wait("lds", 5*time.Second)
+	testTCPEndpoints("127.0.0.3", conn, t)
 
 	// Update the endpoint again, no SA change - expect incremental
 	server.EnvoyXdsServer.MemRegistry.SetEndpoints(edsIncSvc,
 		newEndpointWithAccount("127.0.0.4", "account2", "v1"))
 
-	upd, err = adsc.Wait("", 5*time.Second)
+	upd, err = conn.Wait("", 5*time.Second)
 	if upd != "eds" || err != nil {
 		t.Fatal("Expecting full push after service account update", err, upd)
 	}
-	testTCPEndpoints("127.0.0.4", adsc, t)
+	testTCPEndpoints("127.0.0.4", conn, t)
 
 	// Update the endpoint with different label - expect full
 	server.EnvoyXdsServer.WorkloadUpdate("127.0.0.4", map[string]string{"version": "v2"}, nil)
 
-	upd, err = adsc.Wait("", 5*time.Second)
+	upd, err = conn.Wait("", 5*time.Second)
 	if upd != "cds" || err != nil {
 		t.Fatal("Expecting full push after label update", err, upd)
 	}
-	adsc.Wait("lds", 5*time.Second)
-	testTCPEndpoints("127.0.0.4", adsc, t)
+	conn.Wait("lds", 5*time.Second)
+	testTCPEndpoints("127.0.0.4", conn, t)
 
 	// Update the endpoint again, no label change - expect incremental
 
+}
+
+func testEndpointDelete(server *bootstrap.Server, conn *adsc.ADSC, t *testing.T) {
+
+	// Equivalent with the event generated by K8S watching the Service.
+	// Will trigger a push.
+	server.EnvoyXdsServer.MemRegistry.SetEndpoints(edsIncSvc,
+		newEndpointWithAccount("127.0.0.2", "hello-sa", "v1"),
+		newEndpointWithAccount("127.0.0.3", "hello-sa", "v1"))
+
+	upd, err := conn.Wait("", 5*time.Second)
+	if err != nil {
+		t.Fatal("Incremental push failed", err)
+	}
+	if upd != "eds" {
+		t.Error("Expecting EDS only update, got", upd)
+		_, err = conn.Wait("lds", 5*time.Second)
+		if err != nil {
+			t.Fatal("Incremental push failed", err)
+		}
+	}
+	expectEndpoints(t, conn,"127.0.0.2", "127.0.0.3")
+
+	// Now reduce the number of endpoints back to 1.
+	server.EnvoyXdsServer.MemRegistry.SetEndpoints(edsIncSvc,
+		newEndpointWithAccount("127.0.0.2", "hello-sa", "v1"))
+
+	upd, err = conn.Wait("", 5*time.Second)
+	if err != nil {
+		t.Fatal("Incremental push failed", err)
+	}
+	if upd != "eds" {
+		t.Error("Expecting EDS only update, got", upd)
+		_, err = conn.Wait("lds", 5*time.Second)
+		if err != nil {
+			t.Fatal("Incremental push failed", err)
+		}
+	}
+	expectEndpoints(t, conn,"127.0.0.2")
+}
+
+func expectEndpoints(t *testing.T, conn *adsc.ADSC, expectedAddresses ...string) {
+	loadAssignments, f := conn.EDS["outbound|8080||eds.test.svc.cluster.local"]
+	if !f || len(loadAssignments.Endpoints) == 0 {
+		t.Fatal("No lb endpoints ", conn.EndpointsJSON())
+	}
+
+	remainingExpectedAddresses := make(map[string]bool)
+	for _, addr := range expectedAddresses {
+		remainingExpectedAddresses[addr] = true
+	}
+
+	actualEndpoints := make([]endpoint.LbEndpoint, 0)
+	extraEndpoints := make([]endpoint.LbEndpoint, 0)
+	for _, lbe := range loadAssignments.Endpoints {
+		for _, e := range lbe.LbEndpoints {
+			address := e.Endpoint.Address.GetSocketAddress().Address
+			actualEndpoints = append(actualEndpoints, e)
+			if _, ok := remainingExpectedAddresses[address]; ok {
+				delete(remainingExpectedAddresses, e.Endpoint.Address.GetSocketAddress().Address)
+			} else {
+				extraEndpoints = append(extraEndpoints, e)
+			}
+		}
+	}
+
+	if len(remainingExpectedAddresses) > 0 {
+		t.Errorf("Expecting %v got %v", expectedAddresses, actualEndpoints)
+	}
+
+	if len(extraEndpoints) > 0 {
+		t.Errorf("Expecting %v got %v", expectedAddresses, actualEndpoints)
+	}
 }
 
 // Make a direct EDS grpc request to pilot, verify the result is as expected.
 // This test includes a 'bad client' regression test, which fails to read on the
 // stream.
 func multipleRequest(server *bootstrap.Server, inc bool, nclients,
-	nPushes int, to time.Duration, meta map[string]string, t *testing.T) {
+	nPushes int, to time.Duration, _ map[string]string, t *testing.T) {
 	wgConnect := &sync.WaitGroup{}
 	wg := &sync.WaitGroup{}
 	errChan := make(chan error, nclients)
@@ -281,7 +362,7 @@ func multipleRequest(server *bootstrap.Server, inc bool, nclients,
 		go func(id int) {
 			defer wg.Done()
 			// Connect and get initial response
-			adsc, err := adsc.Dial(util.MockPilotGrpcAddr, "", &adsc.Config{
+			conn, err := adsc.Dial(util.MockPilotGrpcAddr, "", &adsc.Config{
 				IP: testIp(uint32(0x0a100000 + id)),
 			})
 			if err != nil {
@@ -289,17 +370,17 @@ func multipleRequest(server *bootstrap.Server, inc bool, nclients,
 				wgConnect.Done()
 				return
 			}
-			defer adsc.Close()
-			adsc.Watch()
-			_, err = adsc.Wait("rds", 5*time.Second)
+			defer conn.Close()
+			conn.Watch()
+			_, err = conn.Wait("rds", 5*time.Second)
 			if err != nil {
 				errChan <- err
 				wgConnect.Done()
 				return
 			}
 
-			if len(adsc.EDS) == 0 {
-				errChan <- errors.New("No endpoints")
+			if len(conn.EDS) == 0 {
+				errChan <- errors.New("no endpoints")
 				wgConnect.Done()
 				return
 			}
@@ -311,7 +392,7 @@ func multipleRequest(server *bootstrap.Server, inc bool, nclients,
 			for j := 0; j < nPushes; j++ {
 				// The time must be larger than write timeout: if we run all tests
 				// and some are leaving uncleaned state the push will be slower.
-				_, err := adsc.Wait("eds", 15*time.Second)
+				_, err := conn.Wait("eds", 15*time.Second)
 				atomic.AddInt32(&rcvPush, 1)
 				if err != nil {
 					log.Println("Recv failed", err, id, j)
@@ -323,7 +404,7 @@ func multipleRequest(server *bootstrap.Server, inc bool, nclients,
 			log.Println("Received all pushes ", id)
 			atomic.AddInt32(&rcvClients, 1)
 
-			adsc.Close()
+			conn.Close()
 		}(current)
 	}
 	ok := waitTimeout(wgConnect, to)
@@ -339,7 +420,7 @@ func multipleRequest(server *bootstrap.Server, inc bool, nclients,
 			//server.EnvoyXdsServer.MemRegistry.SetEndpoints(edsIncSvc,
 			//	newEndpointWithAccount("127.0.0.2", "hello-sa", "v1"))
 			updates := map[string]*model.EndpointShardsByService{
-				edsIncSvc: &model.EndpointShardsByService{},
+				edsIncSvc: {},
 			}
 			server.EnvoyXdsServer.AdsPushAll(strconv.Itoa(j), server.EnvoyXdsServer.Env.PushContext, false, updates)
 		} else {

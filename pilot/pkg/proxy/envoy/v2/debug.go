@@ -258,7 +258,7 @@ func (sd *MemServiceDiscovery) AddEndpoint(service model.Hostname, servicePortNa
 }
 
 // SetEndpoints update the list of endpoints for a service, similar with K8S controller.
-func (sd *MemServiceDiscovery) SetEndpoints(service string, endpoints []*model.IstioEndpoint) {
+func (sd *MemServiceDiscovery) SetEndpoints(service string, endpoints ...*model.IstioEndpoint) {
 
 	sh := model.Hostname(service)
 	sd.mutex.Lock()
