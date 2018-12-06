@@ -16,12 +16,15 @@ package envoy
 
 import (
 	"fmt"
+	"io"
+	"istio.io/istio/pkg/log"
 	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 
 	"istio.io/istio/pkg/test/env"
@@ -78,6 +81,12 @@ type Envoy struct {
 	// LogEntryPrefix (optional) if provided, sets the prefix for every log line from this Envoy. Defaults to DefaultLogPrefix.
 	LogEntryPrefix string
 
+	// Stderr (optional) if provided, sets the target for stderr.
+	Stderr io.Writer
+
+	// Stdout (optional) if provided, sets the target for stdout.
+	Stdout io.Writer
+
 	cmd    *exec.Cmd
 	baseID uint32
 }
@@ -108,11 +117,19 @@ func (e *Envoy) Start() (err error) {
 	// machine.
 	e.takeBaseID()
 
+	log.Infof("Running %s %s", envoyPath, strings.Join(e.getCommandArgs(), " "))
+
 	// Run the envoy binary
 	args := e.getCommandArgs()
 	e.cmd = exec.Command(envoyPath, args...)
-	e.cmd.Stderr = os.Stderr
-	e.cmd.Stdout = os.Stdout
+	e.cmd.Stderr = e.Stderr
+	if e.cmd.Stderr == nil {
+		e.cmd.Stderr = os.Stderr
+	}
+	e.cmd.Stdout = e.Stdout
+	if e.cmd.Stdout == nil {
+		e.cmd.Stdout = os.Stdout
+	}
 	return e.cmd.Start()
 }
 
