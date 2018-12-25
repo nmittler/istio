@@ -35,7 +35,11 @@ static_resources:
     - socket_address:
         address: 127.0.0.1
         port_value: {{$p}}
-    {{ end }}
+    {{ end -}}
+    circuit_breakers:
+      thresholds:
+        # Max concurrent retries for this cluster
+        max_retries: 10
   listeners:
   - address:
       socket_address:
@@ -61,8 +65,13 @@ static_resources:
                   cluster: backends
 # With this, the client never sees 503s.
                   retry_policy:
-                    retry_on: gateway-error
+                    retry_on: connect-failure,refused-stream,unavailable,cancelled,resource-exhausted
+                    retriable_status_codes: 503
                     num_retries: 10
+                    # per_try_timeout: 0s
+                    # retry_host_predicate:
+                    # - name: envoy.retry_host_predicates.previous_hosts
+                    # host_selection_retry_max_attempts: 3
           http_filters:
           - name: envoy.cors
             config: {}
@@ -136,8 +145,8 @@ func newFrontend(ctx context.Context, cfg frontendConfig) (*frontend, error) {
 	fmt.Println("FE yaml:\n" + yamlFile)
 
 	// Free the ports so they can now be used for Envoy.
-	adminPort.Close()
-	servicePort.Close()
+	_ = adminPort.Close()
+	_ = servicePort.Close()
 
 	// Create amd start Envoy
 	envoyProxy := &envoy.Envoy{
@@ -171,7 +180,7 @@ func (f *frontend) Close() (err error) {
 		err = multierror.Append(err, f.envoyProxy.Stop()).ErrorOrNil()
 	}
 	if f.envoyLogFile != nil {
-		f.envoyLogFile.Close()
+		_ = f.envoyLogFile.Close()
 	}
 	return
 }
