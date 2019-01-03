@@ -39,7 +39,11 @@ static_resources:
     circuit_breakers:
       thresholds:
         # Max concurrent retries for this cluster
-        max_retries: 10
+        max_retries: 100000
+        # Use Istio values.
+        max_connections: 100000
+        max_pending_requests: 100000
+        max_requests: 100000
   listeners:
   - address:
       socket_address:
