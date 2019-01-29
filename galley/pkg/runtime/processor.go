@@ -23,9 +23,22 @@ import (
 	"istio.io/istio/galley/pkg/runtime/groups"
 	"istio.io/istio/galley/pkg/runtime/monitoring"
 	"istio.io/istio/galley/pkg/runtime/processing"
+	"istio.io/istio/galley/pkg/runtime/projections/serviceentry"
 	"istio.io/istio/galley/pkg/runtime/publish"
 	"istio.io/istio/galley/pkg/runtime/resource"
 	"istio.io/istio/pkg/log"
+)
+
+const (
+	// Maximum wait time before deciding to publish the events.
+	serviceEntryMaxWaitDuration = 100 * time.Millisecond
+
+	// Minimum time distance between two events for deciding on the quiesce point. If the time delay
+	// between two events is larger than this, then we can deduce that we hit a quiesce point.
+	serviceEntryQuiesceDuration = 100 * time.Millisecond
+
+	// The frequency for firing the timer events.
+	serviceEntryTimerFrequency = 10 * time.Millisecond
 )
 
 var scope = log.RegisterScope("runtime", "Galley runtime", 0)
@@ -35,6 +48,8 @@ var scope = log.RegisterScope("runtime", "Galley runtime", 0)
 type Processor struct {
 	// source interface for retrieving the events from.
 	source Source
+
+	distribute bool
 
 	// events channel that was obtained from source
 	events chan resource.Event
@@ -49,7 +64,14 @@ type Processor struct {
 	stopped chan struct{}
 
 	// The current in-memory configuration State
-	state *State
+	state         *State
+	stateStrategy *publish.Strategy
+
+	// Handler that generates synthetic ServiceEntry projections.
+	serviceEntryHandler  *serviceentry.Handler
+	serviceEntryStrategy *publish.Strategy
+
+	distributor publish.Distributor
 
 	// hook that gets called after each event processing. Useful for testing.
 	postProcessHook postProcessHookFn
@@ -62,25 +84,52 @@ type postProcessHookFn func()
 
 // NewProcessor returns a new instance of a Processor
 func NewProcessor(src Source, distributor publish.Distributor, cfg *Config) *Processor {
-	state := newState(groups.Default, metadata.Types, cfg, publish.NewStrategyWithDefaults(), distributor)
-	return newProcessor(state, src, nil)
+	stateStrategy := publish.NewStrategyWithDefaults()
+
+	// Use a more frequent publishing strategy for synthetic service entries.
+	serviceEntryStrategy := publish.NewStrategy(serviceEntryMaxWaitDuration, serviceEntryQuiesceDuration, serviceEntryTimerFrequency)
+
+	return newProcessor(src, cfg, metadata.Types, stateStrategy, serviceEntryStrategy, distributor, nil)
 }
 
 func newProcessor(
-	state *State,
 	src Source,
+	cfg *Config,
+	schema *resource.Schema,
+	stateStrategy *publish.Strategy,
+	serviceEntryStrategy *publish.Strategy,
+	distributor publish.Distributor,
 	postProcessHook postProcessHookFn) *Processor {
-
 	now := time.Now()
-	return &Processor{
-		handler:         buildDispatcher(state),
-		state:           state,
-		source:          src,
-		postProcessHook: postProcessHook,
-		done:            make(chan struct{}),
-		stopped:         make(chan struct{}),
-		lastEventTime:   now,
+
+	p := &Processor{
+		stateStrategy:        stateStrategy,
+		serviceEntryStrategy: serviceEntryStrategy,
+		distributor:          distributor,
+		source:               src,
+		postProcessHook:      postProcessHook,
+		done:                 make(chan struct{}),
+		stopped:              make(chan struct{}),
+		lastEventTime:        now,
 	}
+	stateListener := processing.ListenerFromFn(func(c resource.Collection) {
+		// When the state indicates a change occurred, update the publishing strategy
+		if p.distribute {
+			stateStrategy.OnChange()
+		}
+	})
+	p.state = newState(schema, cfg, stateListener)
+
+	serviceEntryListener := processing.ListenerFromFn(func(c resource.Collection) {
+		if p.distribute {
+			// When the handler indicates a change occurred, update the publishing strategy
+			serviceEntryStrategy.OnChange()
+		}
+	})
+	p.serviceEntryHandler = serviceentry.NewHandler(cfg.DomainSuffix, serviceEntryListener)
+
+	p.handler = buildDispatcher(p.state, p.serviceEntryHandler)
+	return p
 }
 
 // Start the processor. This will cause processor to listen to incoming events from the provider
@@ -139,9 +188,15 @@ loop:
 		case e := <-p.events:
 			p.processEvent(e)
 
-		case <-p.state.strategy.Publish:
+		case <-p.stateStrategy.Publish:
 			scope.Debug("Processor.process: publish")
-			p.state.publish()
+			s := p.state.buildSnapshot()
+			p.distributor.SetSnapshot(groups.Default, s)
+
+		case <-p.serviceEntryStrategy.Publish:
+			scope.Debug("Processor.process: publish serviceEntry")
+			s := p.serviceEntryHandler.BuildSnapshot()
+			p.distributor.SetSnapshot(groups.SyntheticServiceEntry, s)
 
 		// p.done signals the graceful Shutdown of the processor.
 		case <-p.done:
@@ -154,7 +209,8 @@ loop:
 		}
 	}
 
-	p.state.close()
+	p.stateStrategy.Reset()
+	p.serviceEntryStrategy.Reset()
 	close(p.stopped)
 	scope.Debugf("Process.process: Exiting process loop")
 }
@@ -165,7 +221,9 @@ func (p *Processor) processEvent(e resource.Event) {
 
 	if e.Kind == resource.FullSync {
 		scope.Infof("Synchronization is complete, starting distribution.")
-		p.state.onFullSync()
+		p.distribute = true
+		p.stateStrategy.OnChange()
+		p.serviceEntryStrategy.OnChange()
 		return
 	}
 
@@ -178,12 +236,19 @@ func (p *Processor) recordEvent() {
 	p.lastEventTime = now
 }
 
-func buildDispatcher(states ...*State) *processing.Dispatcher {
+func buildDispatcher(state *State, serviceEntryHandler processing.Handler) *processing.Dispatcher {
 	b := processing.NewDispatcherBuilder()
-	for _, state := range states {
-		for _, spec := range state.schema.All() {
-			b.Add(spec.Collection, state)
-		}
+
+	// Route all types to the state, except for those required by the serviceEntryHandler.
+	stateSchema := resource.NewSchemaBuilder().RegisterSchema(state.schema).UnregisterSchema(serviceentry.Schema).Build()
+	for _, spec := range stateSchema.All() {
+		b.Add(spec.Collection, state)
 	}
+
+	// Route all other types to the serviceEntryHandler
+	for _, spec := range serviceentry.Schema.All() {
+		b.Add(spec.Collection, serviceEntryHandler)
+	}
+
 	return b.Build()
 }

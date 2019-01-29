@@ -33,7 +33,6 @@ import (
 func TestProcessor_Start(t *testing.T) {
 	src := NewInMemorySource()
 	distributor := snapshot.New(groups.IndexFunction)
-	cfg := &Config{Mesh: meshconfig.NewInMemory()}
 	p := NewProcessor(src, distributor, cfg)
 
 	err := p.Start()
@@ -69,10 +68,10 @@ func TestProcessor_Start_Error(t *testing.T) {
 func TestProcessor_Stop(t *testing.T) {
 	src := NewInMemorySource()
 	distributor := snapshot.New(groups.IndexFunction)
-	strategy := publish.NewStrategyWithDefaults()
-	cfg := &Config{Mesh: meshconfig.NewInMemory()}
+	stateStrategy := publish.NewStrategyWithDefaults()
+	serviceEntryStrategy := publish.NewStrategyWithDefaults()
 
-	p := newProcessor(newState(groups.Default, resources.TestSchema, cfg, strategy, distributor), src, nil)
+	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, nil)
 
 	err := p.Start()
 	if err != nil {
@@ -89,14 +88,15 @@ func TestProcessor_EventAccumulation(t *testing.T) {
 	src := NewInMemorySource()
 	distributor := publish.NewInMemoryDistributor()
 	// Do not quiesce/timeout for an hour
-	strategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
-	cfg := &Config{Mesh: meshconfig.NewInMemory()}
+	stateStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
+	serviceEntryStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
 
-	p := newProcessor(newState(groups.Default, resources.TestSchema, cfg, strategy, distributor), src, nil)
+	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, nil)
 	err := p.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	defer p.Stop()
 
 	k1 := resource.Key{Collection: resources.EmptyInfo.Collection, FullName: resource.FullNameFromNamespaceAndName("", "r1")}
 	src.Set(k1, resource.Metadata{}, &types.Empty{})
@@ -115,14 +115,15 @@ func TestProcessor_EventAccumulation_WithFullSync(t *testing.T) {
 	src := NewInMemorySource()
 	distributor := publish.NewInMemoryDistributor()
 	// Do not quiesce/timeout for an hour
-	strategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
-	cfg := &Config{Mesh: meshconfig.NewInMemory()}
+	stateStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
+	serviceEntryStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
 
-	p := newProcessor(newState(groups.Default, resources.TestSchema, cfg, strategy, distributor), src, nil)
+	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, nil)
 	err := p.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	defer p.Stop()
 
 	k1 := resource.Key{Collection: info.Collection, FullName: resource.FullNameFromNamespaceAndName("", "r1")}
 	src.Set(k1, resource.Metadata{}, &types.Empty{})
@@ -140,27 +141,33 @@ func TestProcessor_Publishing(t *testing.T) {
 
 	src := NewInMemorySource()
 	distributor := publish.NewInMemoryDistributor()
-	strategy := publish.NewStrategy(time.Millisecond, time.Millisecond, time.Microsecond)
-	cfg := &Config{Mesh: meshconfig.NewInMemory()}
+	stateStrategy := publish.NewStrategy(time.Millisecond, time.Millisecond, time.Microsecond)
+	serviceEntryStrategy := publish.NewStrategy(time.Millisecond, time.Millisecond, time.Microsecond)
 
 	processCallCount := sync.WaitGroup{}
 	hookFn := func() {
 		processCallCount.Done()
 	}
-	processCallCount.Add(3) // 1 for add, 1 for sync, 1 for publish trigger
+	processCallCount.Add(4) // 1 for add, 2 for sync, 1 for publish trigger
 
-	p := newProcessor(newState(groups.Default, resources.TestSchema, cfg, strategy, distributor), src, hookFn)
+	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, hookFn)
 	err := p.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	defer p.Stop()
 
 	k1 := resource.Key{Collection: info.Collection, FullName: resource.FullNameFromNamespaceAndName("", "r1")}
 	src.Set(k1, resource.Metadata{}, &types.Empty{})
 
 	processCallCount.Wait()
 
-	if distributor.NumSnapshots() != 1 {
+	if distributor.NumSnapshots() != 2 {
 		t.Fatalf("snapshot should have been distributed: %+v", distributor)
 	}
+}
+
+func newTestProcessor(src Source, stateStrategy *publish.Strategy, serviceEntryStrategy *publish.Strategy,
+	distributor publish.Distributor, hookFn postProcessHookFn) *Processor {
+	return newProcessor(src, cfg, resources.TestSchema, stateStrategy, serviceEntryStrategy, distributor, hookFn)
 }

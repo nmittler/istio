@@ -12,25 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package groups_test
+package annotations
 
-import (
-	"testing"
-
-	. "github.com/onsi/gomega"
-
-	"istio.io/istio/galley/pkg/metadata"
-	"istio.io/istio/galley/pkg/runtime/groups"
+const (
+	// SyntheticResource added to ServiceEntry resources that have been synthesized from k8s resources.
+	SyntheticResource = "networking.istio.io/syntheticResource"
 )
-
-func TestDefault(t *testing.T) {
-	g := NewGomegaWithT(t)
-	actual := groups.IndexFunction("bogus", nil)
-	g.Expect(actual).To(Equal(groups.Default))
-}
-
-func TestSyntheticServiceEntry(t *testing.T) {
-	g := NewGomegaWithT(t)
-	actual := groups.IndexFunction(metadata.IstioNetworkingV1alpha3SyntheticServiceentries.Collection.String(), nil)
-	g.Expect(actual).To(Equal(groups.SyntheticServiceEntry))
-}

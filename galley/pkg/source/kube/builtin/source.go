@@ -170,6 +170,16 @@ func (s *source) handleEvent(kind resource.EventKind, obj interface{}) {
 		}
 
 		event.Entry.Item = item
+	case resource.Deleted:
+		// Try converting the object to a protobuf message, but don't stop at failure.
+		item := s.t.ExtractResource(obj)
+		if item == nil {
+			msg := fmt.Sprintf("failed casting deleted object to proto: %v", reflect.TypeOf(obj))
+			log.Scope.Warn(msg)
+			stats.RecordEventError(msg)
+		}
+
+		event.Entry.Item = item
 	}
 
 	log.Scope.Debugf("Dispatching source event: %v", event)
