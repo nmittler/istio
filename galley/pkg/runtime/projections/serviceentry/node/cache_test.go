@@ -49,8 +49,8 @@ func TestBasicEvents(t *testing.T) {
 			Kind:  resource.Added,
 			Entry: entry("region1", "zone1"),
 		})
-		n := c.GetNodeByName(name)
-		g.Expect(n).ToNot(BeNil())
+		n, ok := c.GetNodeByName(name)
+		g.Expect(ok).To(BeTrue())
 		g.Expect(n.Locality).To(Equal("region1/zone1"))
 	})
 
@@ -60,8 +60,8 @@ func TestBasicEvents(t *testing.T) {
 			Kind:  resource.Updated,
 			Entry: entry("region1", "zone2"),
 		})
-		n := c.GetNodeByName(name)
-		g.Expect(n).ToNot(BeNil())
+		n, ok := c.GetNodeByName(name)
+		g.Expect(ok).To(BeTrue())
 		g.Expect(n.Locality).To(Equal("region1/zone2"))
 	})
 
@@ -71,8 +71,8 @@ func TestBasicEvents(t *testing.T) {
 			Kind:  resource.Deleted,
 			Entry: entry("region1", "zone2"),
 		})
-		n := c.GetNodeByName(name)
-		g.Expect(n).To(BeNil())
+		_, ok := c.GetNodeByName(name)
+		g.Expect(ok).To(BeFalse())
 	})
 }
 
@@ -102,8 +102,8 @@ func TestNodeWithOnlyRegion(t *testing.T) {
 		Entry: entry("region1", ""),
 	})
 
-	n := c.GetNodeByName(name)
-	g.Expect(n).ToNot(BeNil())
+	n, ok := c.GetNodeByName(name)
+	g.Expect(ok).To(BeTrue())
 	g.Expect(n.Locality).To(Equal("region1/"))
 }
 
@@ -117,8 +117,8 @@ func TestNodeWithNoLocality(t *testing.T) {
 		Entry: entry("", ""),
 	})
 
-	n := c.GetNodeByName(name)
-	g.Expect(n).ToNot(BeNil())
+	n, ok := c.GetNodeByName(name)
+	g.Expect(ok).To(BeTrue())
 	g.Expect(n.Locality).To(Equal(""))
 }
 

@@ -131,6 +131,44 @@ var (
 					return false
 				}
 				// Endpoint updates can be noisy. Make sure that the subsets have actually changed.
+				/*if len(r1.Subsets) != len(r2.Subsets) {
+					return false
+				}
+				for sIx, s1 := range r1.Subsets {
+					s2 := r2.Subsets[sIx]
+
+					// Compare addresses.
+					if len(s1.Addresses) != len(s2.Addresses) {
+						return false
+					}
+					for aIx, a1 := range s1.Addresses {
+						a2 := s2.Addresses[aIx]
+						if a1.Hostname != a2.Hostname {
+							return false
+						}
+						if a1.IP != a2.IP {
+							return false
+						}
+						if a1.NodeName != nil && a2.NodeName != nil && *(a1.NodeName) != *(a2.NodeName) {
+							return false
+						}
+						if (a1.NodeName == nil && a2.NodeName != nil) || (a1.NodeName != nil && a2.NodeName == nil) {
+							return false
+						}
+					}
+
+					// Compare Ports
+					if len(s1.Ports) != len(s2.Ports) {
+						return false
+					}
+					for pIx, p1 := range s1.Ports {
+						p2 := s2.Ports[pIx]
+						if p1 != p2 {
+							return false
+						}
+					}
+				}
+				return true*/
 				return reflect.DeepEqual(r1.Subsets, r2.Subsets)
 			},
 			extractObject: func(o interface{}) metav1.Object {

@@ -290,7 +290,7 @@ func TestEndpoints(t *testing.T) {
 	l1 := "locality1"
 	l2 := "locality2"
 	cache := &fakeCache{
-		pods: map[string]*pod.Info{
+		pods: map[string]pod.Info{
 			ip1: {
 				NodeName:           "node1",
 				FullName:           resource.FullNameFromNamespaceAndName("ns", "pod1"),
@@ -307,7 +307,7 @@ func TestEndpoints(t *testing.T) {
 				ServiceAccountName: "sa1", // Same service account as pod1 to test duplicates.
 			},
 		},
-		nodes: map[string]*node.Info{
+		nodes: map[string]node.Info{
 			"node1": {
 				Locality: l1,
 			},
@@ -438,7 +438,7 @@ func TestEndpointsNodeNotFound(t *testing.T) {
 	g := NewGomegaWithT(t)
 	ip1 := "10.0.0.1"
 	cache := &fakeCache{
-		pods: map[string]*pod.Info{
+		pods: map[string]pod.Info{
 			ip1: {
 				NodeName:           "node1",
 				FullName:           resource.FullNameFromNamespaceAndName("ns", "pod1"),
@@ -489,13 +489,16 @@ var _ node.Cache = &fakeCache{}
 var _ pod.Cache = &fakeCache{}
 
 type fakeCache struct {
-	nodes map[string]*node.Info
-	pods  map[string]*pod.Info
+	nodes map[string]node.Info
+	pods  map[string]pod.Info
 }
 
-func (c *fakeCache) GetNodeByName(name string) *node.Info {
-	return c.nodes[name]
+func (c *fakeCache) GetNodeByName(name string) (node.Info, bool) {
+	n, ok := c.nodes[name]
+	return n, ok
 }
-func (c *fakeCache) GetPodByIP(ip string) *pod.Info {
-	return c.pods[ip]
+
+func (c *fakeCache) GetPodByIP(ip string) (pod.Info, bool) {
+	p, ok := c.pods[ip]
+	return p, ok
 }

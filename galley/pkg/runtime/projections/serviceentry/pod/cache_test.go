@@ -55,8 +55,8 @@ func TestBasicEvents(t *testing.T) {
 			Kind:  resource.Added,
 			Entry: entry("1.2.3.4", coreV1.PodPending),
 		})
-		p := c.GetPodByIP("1.2.3.4")
-		g.Expect(p).To(Equal(&pod.Info{
+		p, _ := c.GetPodByIP("1.2.3.4")
+		g.Expect(p).To(Equal(pod.Info{
 			FullName:           fullName,
 			NodeName:           nodeName,
 			ServiceAccountName: expectedServiceAccountName,
@@ -69,8 +69,8 @@ func TestBasicEvents(t *testing.T) {
 			Kind:  resource.Updated,
 			Entry: entry("1.2.3.4", coreV1.PodRunning),
 		})
-		p := c.GetPodByIP("1.2.3.4")
-		g.Expect(p).To(Equal(&pod.Info{
+		p, _ := c.GetPodByIP("1.2.3.4")
+		g.Expect(p).To(Equal(pod.Info{
 			FullName:           fullName,
 			NodeName:           nodeName,
 			ServiceAccountName: expectedServiceAccountName,
@@ -83,8 +83,8 @@ func TestBasicEvents(t *testing.T) {
 			Kind:  resource.Deleted,
 			Entry: entry("1.2.3.4", coreV1.PodRunning),
 		})
-		n := c.GetPodByIP("1.2.3.4")
-		g.Expect(n).To(BeNil())
+		_, ok := c.GetPodByIP("1.2.3.4")
+		g.Expect(ok).To(BeFalse())
 	})
 }
 
@@ -111,8 +111,8 @@ func TestNoNamespaceAndNoServiceAccount(t *testing.T) {
 			},
 		},
 	})
-	p := c.GetPodByIP("1.2.3.4")
-	g.Expect(p).To(Equal(&pod.Info{
+	p, _ := c.GetPodByIP("1.2.3.4")
+	g.Expect(p).To(Equal(pod.Info{
 		FullName:           fullName,
 		NodeName:           nodeName,
 		ServiceAccountName: "spiffe://cluster.local/ns//sa/",
@@ -145,8 +145,8 @@ func TestInvalidPodPhase(t *testing.T) {
 				Kind:  resource.Added,
 				Entry: entry("1.2.3.4", phase),
 			})
-			p := c.GetPodByIP("1.2.3.4")
-			g.Expect(p).To(BeNil())
+			_, ok := c.GetPodByIP("1.2.3.4")
+			g.Expect(ok).To(BeFalse())
 		})
 	}
 }
@@ -161,15 +161,15 @@ func TestUpdateWithInvalidPhaseShouldDelete(t *testing.T) {
 		Kind:  resource.Added,
 		Entry: entry("1.2.3.4", coreV1.PodPending),
 	})
-	p := c.GetPodByIP("1.2.3.4")
-	g.Expect(p).ToNot(BeNil())
+	_, ok := c.GetPodByIP("1.2.3.4")
+	g.Expect(ok).ToNot(BeFalse())
 
 	h.Handle(resource.Event{
 		Kind:  resource.Updated,
 		Entry: entry("1.2.3.4", coreV1.PodUnknown),
 	})
-	p = c.GetPodByIP("1.2.3.4")
-	g.Expect(p).To(BeNil())
+	_, ok = c.GetPodByIP("1.2.3.4")
+	g.Expect(ok).To(BeFalse())
 }
 
 func TestDeleteWithNoItemShouldUseFullName(t *testing.T) {
@@ -182,8 +182,8 @@ func TestDeleteWithNoItemShouldUseFullName(t *testing.T) {
 		Kind:  resource.Added,
 		Entry: entry("1.2.3.4", coreV1.PodPending),
 	})
-	p := c.GetPodByIP("1.2.3.4")
-	g.Expect(p).ToNot(BeNil())
+	_, ok := c.GetPodByIP("1.2.3.4")
+	g.Expect(ok).To(BeTrue())
 
 	// Delete it, but with a nil Item to force a lookup by fullName.
 	h.Handle(resource.Event{
@@ -192,8 +192,8 @@ func TestDeleteWithNoItemShouldUseFullName(t *testing.T) {
 			ID: id,
 		},
 	})
-	p = c.GetPodByIP("1.2.3.4")
-	g.Expect(p).To(BeNil())
+	_, ok = c.GetPodByIP("1.2.3.4")
+	g.Expect(ok).To(BeFalse())
 }
 
 func TestDeleteNotFoundShouldNotPanic(t *testing.T) {
@@ -227,8 +227,8 @@ func TestNoIP(t *testing.T) {
 		Kind:  resource.Added,
 		Entry: entry("", coreV1.PodRunning),
 	})
-	p := c.GetPodByIP("")
-	g.Expect(p).To(BeNil())
+	_, ok := c.GetPodByIP("")
+	g.Expect(ok).To(BeFalse())
 }
 
 func entry(ip string, phase coreV1.PodPhase) resource.Entry {

@@ -37,7 +37,7 @@ type Info struct {
 
 // Cache for pod Info.
 type Cache interface {
-	GetPodByIP(ip string) *Info
+	GetPodByIP(ip string) (Info, bool)
 }
 
 // NewCache creates a cache and its update handler
@@ -48,12 +48,9 @@ func NewCache() (Cache, processing.Handler) {
 
 type cacheImpl map[string]Info
 
-func (pc cacheImpl) GetPodByIP(ip string) *Info {
+func (pc cacheImpl) GetPodByIP(ip string) (Info, bool) {
 	pod, ok := pc[ip]
-	if ok {
-		return &pod
-	}
-	return nil
+	return pod, ok
 }
 
 func (pc cacheImpl) Handle(event resource.Event) {

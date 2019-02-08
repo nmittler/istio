@@ -34,7 +34,7 @@ type Info struct {
 
 // Cache for pod Info.
 type Cache interface {
-	GetNodeByName(name string) *Info
+	GetNodeByName(name string) (Info, bool)
 }
 
 // NewCache creates a cache and its update handler.
@@ -45,12 +45,9 @@ func NewCache() (Cache, processing.Handler) {
 
 type cacheImpl map[string]Info
 
-func (nc cacheImpl) GetNodeByName(name string) *Info {
+func (nc cacheImpl) GetNodeByName(name string) (Info, bool) {
 	node, ok := nc[name]
-	if ok {
-		return &node
-	}
-	return nil
+	return node, ok
 }
 
 func (nc cacheImpl) Handle(event resource.Event) {

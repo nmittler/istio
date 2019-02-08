@@ -31,16 +31,26 @@ const (
 	benchNamespace = "benchmarkns"
 )
 
-func BenchmarkService(b *testing.B) {
+// BenchmarkServiceReuse tests the performance of converting a single k8s Service into a networking.ServiceEntry, reusing
+// the same networking.ServiceEntry instance on each iteration.
+func BenchmarkServiceReuse(b *testing.B) {
+	benchmarkService(b, true)
+}
+
+// BenchmarkServiceNoReuse tests the performance of converting a single k8s Service into a networking.ServiceEntry, using
+// a new networking.ServiceEntry instance on each iteration.
+func BenchmarkServiceNoReuse(b *testing.B) {
 	benchmarkService(b, false)
 }
 
+// benchmarkService performs work for the Service benchmark. If reuse==true the same output networking.ServiceEntry
+// will be used in each iteration. This will enable the benchmark to compare reuse/non-reuse.
 func benchmarkService(b *testing.B, reuse bool) {
 	b.Helper()
 
 	b.StopTimer()
 
-	// Setup a fairy representative k8s Service ... cluster IP, a few ports, some labels/annotations.
+	// Setup a fairly representative k8s Service ... cluster IP, a few ports, some labels/annotations.
 	fullName := resource.FullNameFromNamespaceAndName(benchNamespace, "someservice")
 	spec := &coreV1.ServiceSpec{
 		ClusterIP: "10.0.0.1",
@@ -101,7 +111,15 @@ func convertService(spec *coreV1.ServiceSpec, metadata resource.Metadata, fullNa
 	convert.Service(spec, metadata, fullName, domainSuffix, entry)
 }
 
-func BenchmarkEndpoints(b *testing.B) {
+// BenchmarkEndpoints tests the performance of converting a single k8s Endpoints resource into a networking.ServiceEntry,
+// reusing the same networking.ServiceEntry instance on each iteration.
+func BenchmarkEndpointsReuse(b *testing.B) {
+	benchmarkEndpoints(b, true)
+}
+
+// BenchmarkEndpoints tests the performance of converting a single k8s Endpoints resource into a networking.ServiceEntry,
+// using a new networking.ServiceEntry instance on each iteration.
+func BenchmarkEndpointsNoReuse(b *testing.B) {
 	benchmarkEndpoints(b, false)
 }
 
@@ -203,7 +221,7 @@ var _ pod.Cache = &benchmarkCache{}
 
 type benchmarkCache struct {
 	nodeInfo node.Info
-	pods     map[string]*pod.Info
+	pods     map[string]pod.Info
 }
 
 func newBenchmarkCache() *benchmarkCache {
@@ -211,22 +229,23 @@ func newBenchmarkCache() *benchmarkCache {
 		nodeInfo: node.Info{
 			Locality: "locality",
 		},
-		pods: make(map[string]*pod.Info),
+		pods: make(map[string]pod.Info),
 	}
 }
 
 func (c *benchmarkCache) addPod(ip, serviceAccountName string) {
-	c.pods[ip] = &pod.Info{
+	c.pods[ip] = pod.Info{
 		FullName:           resource.FullNameFromNamespaceAndName(benchNamespace, "SomePod"),
 		NodeName:           "SomeNode",
 		ServiceAccountName: serviceAccountName,
 	}
 }
 
-func (c *benchmarkCache) GetNodeByName(name string) *node.Info {
-	return &c.nodeInfo
+func (c *benchmarkCache) GetNodeByName(name string) (node.Info, bool) {
+	return c.nodeInfo, true
 }
 
-func (c *benchmarkCache) GetPodByIP(ip string) *pod.Info {
-	return c.pods[ip]
+func (c *benchmarkCache) GetPodByIP(ip string) (pod.Info, bool) {
+	p, ok := c.pods[ip]
+	return p, ok
 }

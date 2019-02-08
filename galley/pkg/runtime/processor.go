@@ -15,9 +15,8 @@
 package runtime
 
 import (
+	"sync"
 	"time"
-
-	"github.com/pkg/errors"
 
 	"istio.io/istio/galley/pkg/metadata"
 	"istio.io/istio/galley/pkg/runtime/groups"
@@ -26,6 +25,7 @@ import (
 	"istio.io/istio/galley/pkg/runtime/projections/serviceentry"
 	"istio.io/istio/galley/pkg/runtime/publish"
 	"istio.io/istio/galley/pkg/runtime/resource"
+	"istio.io/istio/galley/pkg/util"
 	"istio.io/istio/pkg/log"
 )
 
@@ -39,17 +39,10 @@ type Processor struct {
 
 	distribute bool
 
-	// events channel that was obtained from source
-	events chan resource.Event
-
 	// handler for events.
 	handler processing.Handler
 
-	// channel that gets closed during Shutdown.
-	done chan struct{}
-
-	// channel that signals the background process as being stopped.
-	stopped chan struct{}
+	eventMutex sync.Mutex
 
 	// The current in-memory configuration State
 	state         *State
@@ -65,6 +58,10 @@ type Processor struct {
 
 	// lastEventTime records the last time an event was received.
 	lastEventTime time.Time
+
+	fullSyncCond *sync.Cond
+
+	worker *util.Worker
 }
 
 type postProcessHookFn func()
@@ -90,9 +87,9 @@ func newProcessor(
 		distributor:     distributor,
 		source:          src,
 		postProcessHook: postProcessHook,
-		done:            make(chan struct{}),
-		stopped:         make(chan struct{}),
+		worker:          util.NewWorker("runtime processor", scope),
 		lastEventTime:   now,
+		fullSyncCond:    sync.NewCond(&sync.Mutex{}),
 	}
 	stateListener := processing.ListenerFromFn(func(c resource.Collection) {
 		// When the state indicates a change occurred, update the publishing strategy
@@ -116,66 +113,50 @@ func newProcessor(
 // Start the processor. This will cause processor to listen to incoming events from the provider
 // and publish component configuration via the Distributor.
 func (p *Processor) Start() error {
-	scope.Info("Starting processor...")
+	return p.worker.Start(func(stopCh chan struct{}, stoppedCh chan struct{}) error {
+		scope.Info("Starting processor...")
 
-	if p.events != nil {
-		scope.Warn("Processor has already started")
-		return errors.New("already started")
-	}
+		err := p.source.Start(p.processEvent)
+		if err != nil {
+			scope.Warnf("Unable to Start source: %v", err)
+			return err
+		}
 
-	events := make(chan resource.Event, 1024)
-	err := p.source.Start(func(e resource.Event) {
-		events <- e
+		go p.process(stopCh, stoppedCh)
+
+		return nil
 	})
-	if err != nil {
-		scope.Warnf("Unable to Start source: %v", err)
-		return err
-	}
-
-	p.events = events
-
-	go p.process()
-
-	return nil
 }
 
 // Stop the processor.
 func (p *Processor) Stop() {
 	scope.Info("Stopping processor...")
-
-	if p.events == nil {
-		scope.Warnf("Processor has already stopped")
-		return
-	}
-
-	p.source.Stop()
-
-	close(p.done)
-	<-p.stopped
-	close(p.events)
-
-	p.events = nil
-	p.done = nil
+	p.worker.Stop(p.source.Stop, nil)
 }
 
-func (p *Processor) process() {
-	scope.Debugf("Starting process loop")
+// AwaitFullSync waits until the full sync event is received from the source. For testing purposes only.
+func (p *Processor) AwaitFullSync() {
+	p.fullSyncCond.L.Lock()
+	defer p.fullSyncCond.L.Unlock()
+
+	if !p.distribute {
+		p.fullSyncCond.Wait()
+	}
+}
+
+func (p *Processor) process(stopCh chan struct{}, stoppedCh chan struct{}) {
+	scope.Debug("Starting process loop")
 
 loop:
 	for {
 		select {
-
-		// Incoming events are received through p.events
-		case e := <-p.events:
-			p.processEvent(e)
-
 		case <-p.stateStrategy.Publish:
 			scope.Debug("Processor.process: publish")
 			s := p.state.buildSnapshot()
 			p.distributor.SetSnapshot(groups.Default, s)
 
 		// p.done signals the graceful Shutdown of the processor.
-		case <-p.done:
+		case <-stopCh:
 			scope.Debug("Processor.process: done")
 			break loop
 		}
@@ -186,22 +167,34 @@ loop:
 	}
 
 	p.stateStrategy.Reset()
-	close(p.stopped)
-	scope.Debugf("Process.process: Exiting process loop")
+	close(stoppedCh)
+
+	if scope.DebugEnabled() {
+		scope.Debugf("Process.process: Exiting process loop")
+	}
 }
 
 func (p *Processor) processEvent(e resource.Event) {
-	scope.Debugf("Incoming source event: %v", e)
+	if scope.DebugEnabled() {
+		scope.Debugf("Incoming source event: %v", e)
+	}
 	p.recordEvent()
 
 	if e.Kind == resource.FullSync {
 		scope.Infof("Synchronization is complete, starting distribution.")
+
+		p.fullSyncCond.L.Lock()
 		p.distribute = true
+		p.fullSyncCond.Broadcast()
+		p.fullSyncCond.L.Unlock()
+
 		p.stateStrategy.OnChange()
 		return
 	}
 
+	p.eventMutex.Lock()
 	p.handler.Handle(e)
+	p.eventMutex.Unlock()
 }
 
 func (p *Processor) recordEvent() {

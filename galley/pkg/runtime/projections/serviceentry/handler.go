@@ -15,11 +15,14 @@
 package serviceentry
 
 import (
-	"fmt"
+	"context"
+	"strconv"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
+
+	"go.opencensus.io/tag"
 
 	mcp "istio.io/api/mcp/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
@@ -61,12 +64,12 @@ type Handler struct {
 
 	listener processing.Listener
 
-	services     map[resource.FullName]resource.Entry
-	endpoints    map[resource.FullName]resource.Entry
-	podsHandler  processing.Handler
-	nodesHandler processing.Handler
-	pods         pod.Cache
-	nodes        node.Cache
+	endpoints      map[resource.FullName]resource.Entry
+	serviceEntries map[resource.FullName]serviceEntryWrapper
+	podsHandler    processing.Handler
+	nodesHandler   processing.Handler
+	pods           pod.Cache
+	nodes          node.Cache
 
 	// The version number for the current State of the object. Every time mcpResources or versions change,
 	// the version number also change
@@ -78,6 +81,8 @@ type Handler struct {
 
 	// lastSnapshotTime records the last time a snapshot was published.
 	lastSnapshotTime time.Time
+
+	statsCtx context.Context
 }
 
 // NewHandler creates a new Handler instance.
@@ -85,16 +90,24 @@ func NewHandler(domainSuffix string, listener processing.Listener) *Handler {
 	pods, podsHandler := pod.NewCache()
 	nodes, nodesHandler := node.NewCache()
 
+	statsCtx, err := tag.New(context.Background(), tag.Insert(monitoring.CollectionTag,
+		metadata.IstioNetworkingV1alpha3SyntheticServiceentries.Collection.String()))
+	if err != nil {
+		log.Scope.Errorf("Error creating monitoring context for counting state: %v", err)
+		statsCtx = nil
+	}
+
 	return &Handler{
-		domainSuffix: domainSuffix,
-		listener:     listener,
-		services:     make(map[resource.FullName]resource.Entry),
-		endpoints:    make(map[resource.FullName]resource.Entry),
-		mcpResources: make(map[resource.FullName]*mcp.Resource),
-		podsHandler:  podsHandler,
-		nodesHandler: nodesHandler,
-		pods:         pods,
-		nodes:        nodes,
+		domainSuffix:   domainSuffix,
+		listener:       listener,
+		endpoints:      make(map[resource.FullName]resource.Entry),
+		serviceEntries: make(map[resource.FullName]serviceEntryWrapper),
+		mcpResources:   make(map[resource.FullName]*mcp.Resource),
+		podsHandler:    podsHandler,
+		nodesHandler:   nodesHandler,
+		pods:           pods,
+		nodes:          nodes,
+		statsCtx:       statsCtx,
 	}
 }
 
@@ -134,38 +147,36 @@ func (p *Handler) BuildSnapshot() snapshot.Snapshot {
 	}
 
 	// Create the collection resources on the Snapshot.
-	version := fmt.Sprintf("%d", p.version)
+	version := strconv.FormatInt(p.version, 10)
 	b.Set(collection.String(), version, entries)
 
 	return b.Build()
 }
 
 func (p *Handler) handleServiceEvent(event resource.Event) {
-	entry := event.Entry
-	fullName := entry.ID.FullName
+	service := event.Entry
+	fullName := service.ID.FullName
 
 	switch event.Kind {
 	case resource.Added, resource.Updated:
+		// Get or create the service entry.
+		se, ok := p.serviceEntries[fullName]
+		if !ok {
+			// Get the associated endpoints, if available.
+			var endpoints *coreV1.Endpoints
+			if endpointsEntry, ok := p.endpoints[fullName]; ok {
+				endpoints = endpointsEntry.Item.(*coreV1.Endpoints)
+			}
 
-		// Check to see if the service's version has changed.
-		curEntry, ok := p.services[fullName]
-		if ok && curEntry.ID.Version == entry.ID.Version {
-			scope.Debugf("received service for the current, known version: %v", event)
-			return
+			se = p.newServiceEntry(service, endpoints)
+		} else {
+			se.Metadata = service.Metadata
+			p.convertService(service, &se.ServiceEntry)
 		}
-
-		// Store the service.
-		p.services[fullName] = entry
-
-		// Get the associated endpoints, if available.
-		var endpoints *coreV1.Endpoints
-		if endpointsEntry, ok := p.endpoints[fullName]; ok {
-			endpoints = endpointsEntry.Item.(*coreV1.Endpoints)
-		}
+		p.serviceEntries[fullName] = se
 
 		// Convert to an MCP resource to be used in the snapshot.
-		se := p.newServiceEntry(entry, endpoints)
-		mcpEntry, ok := p.toMcpResource(fullName, entry.Metadata, se)
+		mcpEntry, ok := p.toMcpResource(fullName, se)
 		if !ok {
 			return
 		}
@@ -174,8 +185,8 @@ func (p *Handler) handleServiceEvent(event resource.Event) {
 		p.updateVersion()
 
 	case resource.Deleted:
-		// Delete the Service and ServiceEntry
-		delete(p.services, fullName)
+		// Delete the ServiceEntry
+		delete(p.serviceEntries, fullName)
 		p.deleteMcpResource(fullName)
 		p.updateVersion()
 	default:
@@ -189,27 +200,24 @@ func (p *Handler) handleEndpointsEvent(event resource.Event) {
 
 	switch event.Kind {
 	case resource.Added, resource.Updated:
-
-		// Check to see if the version has changed.
-		curEntry, ok := p.endpoints[fullName]
-		if ok && curEntry.ID.Version == entry.ID.Version {
-			scope.Debugf("received endpoints for the current, known version: %v", event)
-			return
-		}
-
+		// Store the endpoints.
 		p.endpoints[fullName] = entry
 
-		// Look up the service associated with the endpoints.
-		svcEntry, ok := p.services[fullName]
+		// Look up the ServiceEntry associated with the endpoints.
+		se, ok := p.serviceEntries[fullName]
 		if !ok {
 			// Wait until we get a Service before we create the ServiceEntry.
 			scope.Debugf("received endpoints before service for: %s", fullName)
 			return
 		}
 
+		// Update the service entry.
+		endpoints := entry.Item.(*coreV1.Endpoints)
+		p.convertEndpoints(endpoints, &se.ServiceEntry)
+		p.serviceEntries[fullName] = se
+
 		// Convert to an MCP resource to be used in the snapshot.
-		se := p.newServiceEntry(svcEntry, entry.Item.(*coreV1.Endpoints))
-		mcpEntry, ok := p.toMcpResource(fullName, svcEntry.Metadata, se)
+		mcpEntry, ok := p.toMcpResource(fullName, se)
 		if !ok {
 			return
 		}
@@ -222,20 +230,20 @@ func (p *Handler) handleEndpointsEvent(event resource.Event) {
 		delete(p.endpoints, fullName)
 
 		// Look up the service associated with the endpoints.
-		svcEntry, ok := p.services[fullName]
-		if !ok {
-			return
-		}
+		se, ok := p.serviceEntries[fullName]
+		if ok {
+			// Update the MCP entry to clear out the endpoints.
+			p.convertEndpoints(nil, &se.ServiceEntry)
+			p.serviceEntries[fullName] = se
 
-		// Update the MCP entry to clear out the endpoints.
-		se := p.newServiceEntry(svcEntry, nil)
-		mcpEntry, ok := p.toMcpResource(fullName, svcEntry.Metadata, se)
-		if !ok {
-			return
-		}
-		p.setMcpEntry(fullName, mcpEntry)
+			mcpEntry, ok := p.toMcpResource(fullName, se)
+			if !ok {
+				return
+			}
+			p.setMcpEntry(fullName, mcpEntry)
 
-		p.updateVersion()
+			p.updateVersion()
+		}
 	default:
 		scope.Errorf("unknown event kind: %v", event.Kind)
 	}
@@ -251,9 +259,11 @@ func (p *Handler) deleteMcpResource(fullName resource.FullName) {
 
 func (p *Handler) updateVersion() {
 	p.version++
-	monitoring.RecordStateTypeCount(collection.String(), len(p.mcpResources))
+	monitoring.RecordStateTypeCountWithContext(p.statsCtx, len(p.mcpResources))
 
-	scope.Debugf("in-memory state has changed:\n%v\n", p)
+	if scope.DebugEnabled() {
+		scope.Debugf("in-memory state has changed:\n%v\n", p)
+	}
 	p.pendingEvents++
 	p.notifyChanged()
 }
@@ -263,50 +273,96 @@ func (p *Handler) notifyChanged() {
 }
 
 func (p *Handler) versionString() string {
-	return fmt.Sprintf("%d", p.version)
+	return strconv.FormatInt(p.version, 10)
 }
 
-func (p *Handler) newServiceEntry(serviceResource resource.Entry, endpoints *coreV1.Endpoints) *networking.ServiceEntry {
-	se := &networking.ServiceEntry{}
-
-	svc := serviceResource.Item.(*coreV1.ServiceSpec)
-	svcMeta := serviceResource.Metadata
-
-	// Apply part of the conversion from the k8s Service.
-	convert.Service(svc, svcMeta, serviceResource.ID.FullName, p.domainSuffix, se)
-
-	// Apply part of the conversion from the k8s Endpoints, if available.
-	if endpoints != nil {
-		convert.Endpoints(endpoints, p.pods, p.nodes, se)
+func (p *Handler) newServiceEntry(serviceResource resource.Entry, endpoints *coreV1.Endpoints) serviceEntryWrapper {
+	se := serviceEntryWrapper{
+		Metadata: serviceResource.Metadata,
 	}
+	p.convertService(serviceResource, &se.ServiceEntry)
+	p.convertEndpoints(endpoints, &se.ServiceEntry)
 	return se
 }
 
-func (p *Handler) toMcpResource(fullName resource.FullName, metadata resource.Metadata,
-	serviceEntry proto.Message) (*mcp.Resource, bool) {
+func (p *Handler) convertService(service resource.Entry, out *networking.ServiceEntry) {
+	convert.Service(service.Item.(*coreV1.ServiceSpec), service.Metadata, service.ID.FullName, p.domainSuffix, out)
+}
 
-	body, err := types.MarshalAny(serviceEntry)
+func (p *Handler) convertEndpoints(endpoints *coreV1.Endpoints, out *networking.ServiceEntry) {
+	convert.Endpoints(endpoints, p.pods, p.nodes, out)
+}
+
+func (p *Handler) toMcpResource(fullName resource.FullName, se serviceEntryWrapper) (*mcp.Resource, bool) {
+
+	// Serialize the proto.
+	serialized, err := proto.Marshal(&se.ServiceEntry)
 	if err != nil {
-		scope.Errorf("error serializing proto from source e: %v:", serviceEntry)
+		scope.Errorf("error serializing proto from source e: %v:", se.ServiceEntry)
 		return nil, false
 	}
 
-	createTime, err := types.TimestampProto(metadata.CreateTime)
-	if err != nil {
-		scope.Errorf("error parsing resource create_time for event metadata (%v): %v", metadata, err)
-		return nil, false
+	// Wrap it in an Any
+	body := &types.Any{
+		TypeUrl: metadata.IstioNetworkingV1alpha3SyntheticServiceentries.TypeURL.String(),
+		Value:   serialized,
+	}
+
+	// Create the metadata for the MCP resource.
+	mcpMeta := &mcp.Metadata{
+		Name:    fullName.String(),
+		Version: p.versionString(),
+		Labels:  se.Metadata.Labels,
+	}
+
+	prevResource := p.mcpResources[fullName]
+	if prevResource != nil {
+		// Re-use the creation timestamp, since it won't change.
+		mcpMeta.CreateTime = prevResource.Metadata.CreateTime
+
+		// Re-use the annotations if nothing changed.
+		if convertedAnnotationsEqual(prevResource.Metadata.Annotations, se.Metadata.Annotations) {
+			mcpMeta.Annotations = prevResource.Metadata.Annotations
+		} else {
+			mcpMeta.Annotations = convert.Annotations(se.Metadata.Annotations)
+		}
+
+	} else {
+		// Convert the creation timestamp.
+		var err error
+		mcpMeta.CreateTime, err = types.TimestampProto(se.Metadata.CreateTime)
+		if err != nil {
+			scope.Errorf("error parsing resource create_time for event metadata (%v): %v", se.Metadata, err)
+			return nil, false
+		}
+
+		// Create the annotations.
+		mcpMeta.Annotations = convert.Annotations(se.Metadata.Annotations)
 	}
 
 	entry := &mcp.Resource{
-		Metadata: &mcp.Metadata{
-			Name:        fullName.String(),
-			CreateTime:  createTime,
-			Version:     p.versionString(),
-			Labels:      metadata.Labels,
-			Annotations: convert.Annotations(metadata.Annotations),
-		},
-		Body: body,
+		Metadata: mcpMeta,
+		Body:     body,
 	}
+	p.mcpResources[fullName] = entry
 
 	return entry, true
+}
+
+func convertedAnnotationsEqual(prev, new map[string]string) bool {
+	if len(prev) != len(new)+1 {
+		return false
+	}
+	for k, v1 := range new {
+		v2, ok := prev[k]
+		if !ok || v1 != v2 {
+			return false
+		}
+	}
+	return true
+}
+
+type serviceEntryWrapper struct {
+	networking.ServiceEntry
+	resource.Metadata
 }
