@@ -280,8 +280,7 @@ func (p *Handler) toMcpResource(svcEntry resource.Entry, endpoints *coreV1.Endpo
 
 	// Set the endpoints, if available.
 	if endpoints != nil {
-		// TODO(nmittler): Add service accounts to ServiceEntry
-		se.Endpoints, _ = convert.Endpoints(endpoints, p.pods, p.nodes)
+		se.Endpoints, se.SubjectAltNames = convert.Endpoints(endpoints, p.pods, p.nodes)
 	}
 
 	body, err := types.MarshalAny(se)

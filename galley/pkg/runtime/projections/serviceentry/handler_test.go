@@ -39,10 +39,10 @@ import (
 
 const (
 	domainSuffix = "company.com"
-	clusterIP    = "10.0.0.1"
-	pod1IP       = "10.0.0.2"
+	clusterIP    = "10.0.0.10"
+	pod1IP       = "10.0.0.1"
 	pod2IP       = "10.0.0.2"
-	namespace    = "ns"
+	namespace    = "fakeNamespace"
 	nodeName     = "node1"
 	region       = "region1"
 	zone         = "zone1"
@@ -50,7 +50,6 @@ const (
 
 var (
 	serviceName = name(namespace, "svc1")
-	podName     = name(namespace, "pod1")
 	createTime  = time.Now()
 
 	nodeCollection         = metadata.K8sCoreV1Nodes.Collection
@@ -93,7 +92,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("AddPod1", func(t *testing.T) {
 		h.Handle(resource.Event{
 			Kind:  resource.Added,
-			Entry: podEntry(podName, "v1", pod1IP, nodeName, coreV1.PodRunning),
+			Entry: podEntry(name(namespace, "pod1"), "v1", pod1IP, nodeName, "sa1", coreV1.PodRunning),
 		})
 		expectNoNotification(t, l)
 	})
@@ -101,7 +100,7 @@ func TestLifecycle(t *testing.T) {
 	t.Run("AddPod2", func(t *testing.T) {
 		h.Handle(resource.Event{
 			Kind:  resource.Added,
-			Entry: podEntry(podName, "v1", pod2IP, nodeName, coreV1.PodRunning),
+			Entry: podEntry(name(namespace, "pod2"), "v1", pod2IP, nodeName, "sa2", coreV1.PodRunning),
 		})
 		expectNoNotification(t, l)
 	})
@@ -115,7 +114,7 @@ func TestLifecycle(t *testing.T) {
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, expectedVersion)
 		expectedVersion++
-		expectedBody := newExpectedBody(serviceName, region, zone)
+		expectedBody := newBuilder().ServiceName(serviceName).Region(region).Zone(zone).Build()
 		expectResource(t, h, expectedVersion, expectedMetadata, expectedBody)
 	})
 
@@ -127,7 +126,7 @@ func TestLifecycle(t *testing.T) {
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, expectedVersion)
 		expectedVersion++
-		expectedBody := newExpectedBody(serviceName, region, zone)
+		expectedBody := newBuilder().ServiceName(serviceName).Region(region).Zone(zone).Build()
 		expectResource(t, h, expectedVersion, expectedMetadata, expectedBody)
 	})
 
@@ -139,7 +138,8 @@ func TestLifecycle(t *testing.T) {
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, expectedVersion)
 		expectedVersion++
-		expectedBody := newExpectedBody(serviceName, region, zone, pod1IP)
+		expectedBody := newBuilder().ServiceName(serviceName).Region(region).Zone(zone).IPs(pod1IP).
+			ServiceAccounts("sa1").Build()
 		expectResource(t, h, expectedVersion, expectedMetadata, expectedBody)
 	})
 
@@ -151,7 +151,8 @@ func TestLifecycle(t *testing.T) {
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, expectedVersion)
 		expectedVersion++
-		expectedBody := newExpectedBody(serviceName, region, zone, pod1IP, pod2IP)
+		expectedBody := newBuilder().ServiceName(serviceName).Region(region).Zone(zone).IPs(pod1IP, pod2IP).
+			ServiceAccounts("sa1", "sa2").Build()
 		expectResource(t, h, expectedVersion, expectedMetadata, expectedBody)
 	})
 
@@ -163,7 +164,8 @@ func TestLifecycle(t *testing.T) {
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, expectedVersion)
 		expectedVersion++
-		expectedBody := newExpectedBody(serviceName, region, zone, pod2IP)
+		expectedBody := newBuilder().ServiceName(serviceName).Region(region).Zone(zone).IPs(pod2IP).
+			ServiceAccounts("sa2").Build()
 		expectResource(t, h, expectedVersion, expectedMetadata, expectedBody)
 	})
 
@@ -175,7 +177,7 @@ func TestLifecycle(t *testing.T) {
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, expectedVersion)
 		expectedVersion++
-		expectedBody := newExpectedBody(serviceName, region, zone)
+		expectedBody := newBuilder().ServiceName(serviceName).Region(region).Zone(zone).Build()
 		expectResource(t, h, expectedVersion, expectedMetadata, expectedBody)
 	})
 
@@ -212,7 +214,7 @@ func TestReceiveEndpointsBeforeService(t *testing.T) {
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, expectedVersion)
 		expectedVersion++
-		expectedBody := newExpectedBody(serviceName, "", "", pod1IP)
+		expectedBody := newBuilder().ServiceName(serviceName).IPs(pod1IP).Build()
 		expectResource(t, h, expectedVersion, expectedMetadata, expectedBody)
 	})
 }
@@ -232,7 +234,7 @@ func TestServiceSameVersionShouldBeIgnored(t *testing.T) {
 	})
 	expectNotification(t, l)
 	expectedMetadata := newExpectedMetadata(serviceName, createTime, resourceVersion)
-	expectedBody := newExpectedBody(serviceName, "", "")
+	expectedBody := newBuilder().ServiceName(serviceName).Build()
 	expectResource(t, h, snapshotVersion, expectedMetadata, expectedBody)
 
 	// Update without changing the version.
@@ -242,7 +244,7 @@ func TestServiceSameVersionShouldBeIgnored(t *testing.T) {
 	})
 	expectNoNotification(t, l)
 	expectedMetadata = newExpectedMetadata(serviceName, createTime, resourceVersion)
-	expectedBody = newExpectedBody(serviceName, "", "")
+	expectedBody = newBuilder().ServiceName(serviceName).Build()
 	expectResource(t, h, snapshotVersion, expectedMetadata, expectedBody)
 }
 
@@ -260,7 +262,7 @@ func TestEndpointsWithSameVersionShouldBeIgnored(t *testing.T) {
 		snapshotVersion++
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, resourceVersion)
-		expectedBody := newExpectedBody(serviceName, "", "")
+		expectedBody := newBuilder().ServiceName(serviceName).Build()
 		expectResource(t, h, snapshotVersion, expectedMetadata, expectedBody)
 	})
 
@@ -273,7 +275,7 @@ func TestEndpointsWithSameVersionShouldBeIgnored(t *testing.T) {
 		snapshotVersion++
 		expectNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, resourceVersion)
-		expectedBody := newExpectedBody(serviceName, "", "", pod1IP)
+		expectedBody := newBuilder().ServiceName(serviceName).IPs(pod1IP).Build()
 		expectResource(t, h, snapshotVersion, expectedMetadata, expectedBody)
 	})
 
@@ -284,7 +286,7 @@ func TestEndpointsWithSameVersionShouldBeIgnored(t *testing.T) {
 		})
 		expectNoNotification(t, l)
 		expectedMetadata := newExpectedMetadata(serviceName, createTime, resourceVersion)
-		expectedBody := newExpectedBody(serviceName, "", "", pod1IP)
+		expectedBody := newBuilder().ServiceName(serviceName).IPs(pod1IP).Build()
 		expectResource(t, h, snapshotVersion, expectedMetadata, expectedBody)
 	})
 }
@@ -353,12 +355,18 @@ func nodeEntry(nodeName, version, region, zone string) resource.Entry {
 	}
 }
 
-func podEntry(podName resource.FullName, version, ip, nodeName string, phase coreV1.PodPhase) resource.Entry {
+func podEntry(podName resource.FullName, version, ip, nodeName, saName string, phase coreV1.PodPhase) resource.Entry {
+	ns, name := podName.InterpretAsNamespaceAndName()
 	return resource.Entry{
 		ID: id(podCollection, podName, version),
 		Item: &coreV1.Pod{
+			ObjectMeta: metaV1.ObjectMeta{
+				Name:      name,
+				Namespace: ns,
+			},
 			Spec: coreV1.PodSpec{
-				NodeName: nodeName,
+				NodeName:           nodeName,
+				ServiceAccountName: saName,
 			},
 			Status: coreV1.PodStatus{
 				PodIP: ip,
@@ -456,8 +464,45 @@ func newExpectedMetadata(serviceName resource.FullName, createTime time.Time, ve
 	}
 }
 
-func newExpectedBody(serviceName resource.FullName, region, zone string, ips ...string) *networking.ServiceEntry {
-	ns, n := serviceName.InterpretAsNamespaceAndName()
+type builder struct {
+	serviceName     resource.FullName
+	region          string
+	zone            string
+	ips             []string
+	serviceAccounts []string
+}
+
+func newBuilder() *builder {
+	return &builder{}
+}
+
+func (b *builder) ServiceName(serviceName resource.FullName) *builder {
+	b.serviceName = serviceName
+	return b
+}
+
+func (b *builder) Region(region string) *builder {
+	b.region = region
+	return b
+}
+
+func (b *builder) Zone(zone string) *builder {
+	b.zone = zone
+	return b
+}
+
+func (b *builder) IPs(ips ...string) *builder {
+	b.ips = ips
+	return b
+}
+
+func (b *builder) ServiceAccounts(serviceAccounts ...string) *builder {
+	b.serviceAccounts = serviceAccounts
+	return b
+}
+
+func (b *builder) Build() *networking.ServiceEntry {
+	ns, n := b.serviceName.InterpretAsNamespaceAndName()
 	entry := &networking.ServiceEntry{
 		Hosts:      []string{host(ns, n)},
 		Addresses:  []string{clusterIP},
@@ -470,9 +515,10 @@ func newExpectedBody(serviceName resource.FullName, region, zone string, ips ...
 				Protocol: string(model.ProtocolHTTP),
 			},
 		},
+		SubjectAltNames: expectedSubjectAltNames(ns, b.serviceAccounts),
 	}
 
-	for _, ip := range ips {
+	for _, ip := range b.ips {
 		entry.Endpoints = append(entry.Endpoints, &networking.ServiceEntry_Endpoint{
 			Labels:  endpointLabels,
 			Address: ip,
@@ -480,7 +526,7 @@ func newExpectedBody(serviceName resource.FullName, region, zone string, ips ...
 				"http": 80,
 			},
 
-			Locality: localityFor(region, zone),
+			Locality: localityFor(b.region, b.zone),
 		})
 	}
 
@@ -559,4 +605,19 @@ func expectEmptySnapshot(t *testing.T, h *serviceentry.Handler, expectedVersion 
 	if len(rs) != 0 {
 		t.Fatalf("expected snapshot resource count %d to equal %d", len(rs), 0)
 	}
+}
+
+func expectedSubjectAltNames(ns string, serviceAccountNames []string) []string {
+	if serviceAccountNames == nil {
+		return nil
+	}
+	out := make([]string, 0, len(serviceAccountNames))
+	for _, serviceAccountName := range serviceAccountNames {
+		out = append(out, expectedSubjectAltName(ns, serviceAccountName))
+	}
+	return out
+}
+
+func expectedSubjectAltName(ns, serviceAccountName string) string {
+	return fmt.Sprintf("spiffe://cluster.local/ns/%s/sa/%s", ns, serviceAccountName)
 }

@@ -1877,7 +1877,10 @@ var _datasetNetworkingIstioIoV1alpha3SyntheticServiceentry_expectedJson = []byte
             "protocol": "TCP"
           }
         ],
-        "resolution": 1
+        "resolution": 1,
+        "subject_alt_names": [
+          "spiffe://cluster.local/ns//sa/kube-dns"
+        ]
       }
     }
   ]

@@ -277,6 +277,7 @@ func TestEndpoints(t *testing.T) {
 	g := NewGomegaWithT(t)
 	ip1 := "10.0.0.1"
 	ip2 := "10.0.0.2"
+	ip3 := "10.0.0.3"
 	l1 := "locality1"
 	l2 := "locality2"
 	cache := &fakeCache{
@@ -290,6 +291,11 @@ func TestEndpoints(t *testing.T) {
 				NodeName:           "node2",
 				FullName:           resource.FullNameFromNamespaceAndName("ns", "pod2"),
 				ServiceAccountName: "sa2",
+			},
+			ip3: {
+				NodeName:           "node1", // Also on node1
+				FullName:           resource.FullNameFromNamespaceAndName("ns", "pod3"),
+				ServiceAccountName: "sa1", // Same service account as pod1 to test duplicates.
 			},
 		},
 		nodes: map[string]*node.Info{
@@ -317,6 +323,9 @@ func TestEndpoints(t *testing.T) {
 					},
 					{
 						IP: ip2,
+					},
+					{
+						IP: ip3,
 					},
 				},
 				Ports: []coreV1.EndpointPort{
@@ -354,7 +363,18 @@ func TestEndpoints(t *testing.T) {
 				"https": 443,
 			},
 		},
+		{
+			Labels:   labels,
+			Address:  ip3,
+			Locality: l1,
+			Ports: map[string]uint32{
+				"http":  80,
+				"https": 443,
+			},
+		},
 	}
+
+	// Expect that we'll remove duplicate service accounts.
 	expectedServiceAccounts := []string{
 		"sa1",
 		"sa2",
