@@ -29,18 +29,6 @@ import (
 	"istio.io/istio/pkg/log"
 )
 
-const (
-	// Maximum wait time before deciding to publish the events.
-	serviceEntryMaxWaitDuration = 100 * time.Millisecond
-
-	// Minimum time distance between two events for deciding on the quiesce point. If the time delay
-	// between two events is larger than this, then we can deduce that we hit a quiesce point.
-	serviceEntryQuiesceDuration = 100 * time.Millisecond
-
-	// The frequency for firing the timer events.
-	serviceEntryTimerFrequency = 10 * time.Millisecond
-)
-
 var scope = log.RegisterScope("runtime", "Galley runtime", 0)
 
 // Processor is the main control-loop for processing incoming config events and translating them into
@@ -68,8 +56,7 @@ type Processor struct {
 	stateStrategy *publish.Strategy
 
 	// Handler that generates synthetic ServiceEntry projections.
-	serviceEntryHandler  *serviceentry.Handler
-	serviceEntryStrategy *publish.Strategy
+	serviceEntryHandler *serviceentry.Handler
 
 	distributor publish.Distributor
 
@@ -86,10 +73,7 @@ type postProcessHookFn func()
 func NewProcessor(src Source, distributor publish.Distributor, cfg *Config) *Processor {
 	stateStrategy := publish.NewStrategyWithDefaults()
 
-	// Use a more frequent publishing strategy for synthetic service entries.
-	serviceEntryStrategy := publish.NewStrategy(serviceEntryMaxWaitDuration, serviceEntryQuiesceDuration, serviceEntryTimerFrequency)
-
-	return newProcessor(src, cfg, metadata.Types, stateStrategy, serviceEntryStrategy, distributor, nil)
+	return newProcessor(src, cfg, metadata.Types, stateStrategy, distributor, nil)
 }
 
 func newProcessor(
@@ -97,20 +81,18 @@ func newProcessor(
 	cfg *Config,
 	schema *resource.Schema,
 	stateStrategy *publish.Strategy,
-	serviceEntryStrategy *publish.Strategy,
 	distributor publish.Distributor,
 	postProcessHook postProcessHookFn) *Processor {
 	now := time.Now()
 
 	p := &Processor{
-		stateStrategy:        stateStrategy,
-		serviceEntryStrategy: serviceEntryStrategy,
-		distributor:          distributor,
-		source:               src,
-		postProcessHook:      postProcessHook,
-		done:                 make(chan struct{}),
-		stopped:              make(chan struct{}),
-		lastEventTime:        now,
+		stateStrategy:   stateStrategy,
+		distributor:     distributor,
+		source:          src,
+		postProcessHook: postProcessHook,
+		done:            make(chan struct{}),
+		stopped:         make(chan struct{}),
+		lastEventTime:   now,
 	}
 	stateListener := processing.ListenerFromFn(func(c resource.Collection) {
 		// When the state indicates a change occurred, update the publishing strategy
@@ -120,13 +102,12 @@ func newProcessor(
 	})
 	p.state = newState(schema, cfg, stateListener)
 
-	serviceEntryListener := processing.ListenerFromFn(func(c resource.Collection) {
-		if p.distribute {
-			// When the handler indicates a change occurred, update the publishing strategy
-			serviceEntryStrategy.OnChange()
-		}
-	})
-	p.serviceEntryHandler = serviceentry.NewHandler(cfg.DomainSuffix, serviceEntryListener)
+	// Publish ServiceEntry events as soon as they occur.
+	p.serviceEntryHandler = serviceentry.NewHandler(cfg.DomainSuffix, processing.ListenerFromFn(func(_ resource.Collection) {
+		scope.Debug("Processor.process: publish serviceEntry")
+		s := p.serviceEntryHandler.BuildSnapshot()
+		p.distributor.SetSnapshot(groups.SyntheticServiceEntry, s)
+	}))
 
 	p.handler = buildDispatcher(p.state, p.serviceEntryHandler)
 	return p
@@ -193,11 +174,6 @@ loop:
 			s := p.state.buildSnapshot()
 			p.distributor.SetSnapshot(groups.Default, s)
 
-		case <-p.serviceEntryStrategy.Publish:
-			scope.Debug("Processor.process: publish serviceEntry")
-			s := p.serviceEntryHandler.BuildSnapshot()
-			p.distributor.SetSnapshot(groups.SyntheticServiceEntry, s)
-
 		// p.done signals the graceful Shutdown of the processor.
 		case <-p.done:
 			scope.Debug("Processor.process: done")
@@ -210,7 +186,6 @@ loop:
 	}
 
 	p.stateStrategy.Reset()
-	p.serviceEntryStrategy.Reset()
 	close(p.stopped)
 	scope.Debugf("Process.process: Exiting process loop")
 }
@@ -223,7 +198,6 @@ func (p *Processor) processEvent(e resource.Event) {
 		scope.Infof("Synchronization is complete, starting distribution.")
 		p.distribute = true
 		p.stateStrategy.OnChange()
-		p.serviceEntryStrategy.OnChange()
 		return
 	}
 

@@ -69,9 +69,8 @@ func TestProcessor_Stop(t *testing.T) {
 	src := NewInMemorySource()
 	distributor := snapshot.New(groups.IndexFunction)
 	stateStrategy := publish.NewStrategyWithDefaults()
-	serviceEntryStrategy := publish.NewStrategyWithDefaults()
 
-	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, nil)
+	p := newTestProcessor(src, stateStrategy, distributor, nil)
 
 	err := p.Start()
 	if err != nil {
@@ -89,9 +88,8 @@ func TestProcessor_EventAccumulation(t *testing.T) {
 	distributor := publish.NewInMemoryDistributor()
 	// Do not quiesce/timeout for an hour
 	stateStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
-	serviceEntryStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
 
-	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, nil)
+	p := newTestProcessor(src, stateStrategy, distributor, nil)
 	err := p.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -116,9 +114,8 @@ func TestProcessor_EventAccumulation_WithFullSync(t *testing.T) {
 	distributor := publish.NewInMemoryDistributor()
 	// Do not quiesce/timeout for an hour
 	stateStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
-	serviceEntryStrategy := publish.NewStrategy(time.Hour, time.Hour, time.Millisecond)
 
-	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, nil)
+	p := newTestProcessor(src, stateStrategy, distributor, nil)
 	err := p.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -142,15 +139,14 @@ func TestProcessor_Publishing(t *testing.T) {
 	src := NewInMemorySource()
 	distributor := publish.NewInMemoryDistributor()
 	stateStrategy := publish.NewStrategy(time.Millisecond, time.Millisecond, time.Microsecond)
-	serviceEntryStrategy := publish.NewStrategy(time.Millisecond, time.Millisecond, time.Microsecond)
 
 	processCallCount := sync.WaitGroup{}
 	hookFn := func() {
 		processCallCount.Done()
 	}
-	processCallCount.Add(4) // 1 for add, 2 for sync, 1 for publish trigger
+	processCallCount.Add(3) // 1 for add, 1 for sync, 1 for publish trigger
 
-	p := newTestProcessor(src, stateStrategy, serviceEntryStrategy, distributor, hookFn)
+	p := newTestProcessor(src, stateStrategy, distributor, hookFn)
 	err := p.Start()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -162,12 +158,12 @@ func TestProcessor_Publishing(t *testing.T) {
 
 	processCallCount.Wait()
 
-	if distributor.NumSnapshots() != 2 {
+	if distributor.NumSnapshots() != 1 {
 		t.Fatalf("snapshot should have been distributed: %+v", distributor)
 	}
 }
 
-func newTestProcessor(src Source, stateStrategy *publish.Strategy, serviceEntryStrategy *publish.Strategy,
+func newTestProcessor(src Source, stateStrategy *publish.Strategy,
 	distributor publish.Distributor, hookFn postProcessHookFn) *Processor {
-	return newProcessor(src, cfg, resources.TestSchema, stateStrategy, serviceEntryStrategy, distributor, hookFn)
+	return newProcessor(src, cfg, resources.TestSchema, stateStrategy, distributor, hookFn)
 }

@@ -16,7 +16,6 @@ package serviceentry
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/gogo/protobuf/types"
@@ -70,7 +69,6 @@ type Handler struct {
 	// The version number for the current State of the object. Every time mcpResources or versions change,
 	// the version number also change
 	version      int64
-	mcpLock      sync.Mutex
 	mcpResources map[resource.FullName]*mcp.Resource
 
 	// pendingEvents counts the number of events awaiting publishing.
@@ -120,9 +118,6 @@ func (p *Handler) Handle(event resource.Event) {
 
 // Builds the snapshot of the current resources.
 func (p *Handler) BuildSnapshot() snapshot.Snapshot {
-	p.mcpLock.Lock()
-	defer p.mcpLock.Unlock()
-
 	now := time.Now()
 	monitoring.RecordProcessorSnapshotPublished(p.pendingEvents, now.Sub(p.lastSnapshotTime))
 	p.lastSnapshotTime = now
@@ -242,16 +237,10 @@ func (p *Handler) handleEndpointsEvent(event resource.Event) {
 }
 
 func (p *Handler) setMcpEntry(fullName resource.FullName, mcpEntry *mcp.Resource) {
-	p.mcpLock.Lock()
-	defer p.mcpLock.Unlock()
-
 	p.mcpResources[fullName] = mcpEntry
 }
 
 func (p *Handler) deleteMcpResource(fullName resource.FullName) {
-	p.mcpLock.Lock()
-	defer p.mcpLock.Unlock()
-
 	delete(p.mcpResources, fullName)
 }
 
