@@ -18,9 +18,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 
 	mcp "istio.io/api/mcp/v1alpha1"
+	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/galley/pkg/metadata"
 	"istio.io/istio/galley/pkg/runtime/log"
 	"istio.io/istio/galley/pkg/runtime/monitoring"
@@ -162,7 +164,8 @@ func (p *Handler) handleServiceEvent(event resource.Event) {
 		}
 
 		// Convert to an MCP resource to be used in the snapshot.
-		mcpEntry, ok := p.toMcpResource(entry, endpoints)
+		se := p.newServiceEntry(entry, endpoints)
+		mcpEntry, ok := p.toMcpResource(fullName, entry.Metadata, se)
 		if !ok {
 			return
 		}
@@ -205,7 +208,8 @@ func (p *Handler) handleEndpointsEvent(event resource.Event) {
 		}
 
 		// Convert to an MCP resource to be used in the snapshot.
-		mcpEntry, ok := p.toMcpResource(svcEntry, entry.Item.(*coreV1.Endpoints))
+		se := p.newServiceEntry(svcEntry, entry.Item.(*coreV1.Endpoints))
+		mcpEntry, ok := p.toMcpResource(fullName, svcEntry.Metadata, se)
 		if !ok {
 			return
 		}
@@ -224,7 +228,8 @@ func (p *Handler) handleEndpointsEvent(event resource.Event) {
 		}
 
 		// Update the MCP entry to clear out the endpoints.
-		mcpEntry, ok := p.toMcpResource(svcEntry, nil)
+		se := p.newServiceEntry(svcEntry, nil)
+		mcpEntry, ok := p.toMcpResource(fullName, svcEntry.Metadata, se)
 		if !ok {
 			return
 		}
@@ -261,26 +266,34 @@ func (p *Handler) versionString() string {
 	return fmt.Sprintf("%d", p.version)
 }
 
-func (p *Handler) toMcpResource(svcEntry resource.Entry, endpoints *coreV1.Endpoints) (*mcp.Resource, bool) {
-	fullName := svcEntry.ID.FullName
-	svc := svcEntry.Item.(*coreV1.ServiceSpec)
-	svcMeta := svcEntry.Metadata
-	se := convert.Service(svc, svcMeta, svcEntry.ID.FullName, p.domainSuffix)
+func (p *Handler) newServiceEntry(serviceResource resource.Entry, endpoints *coreV1.Endpoints) *networking.ServiceEntry {
+	se := &networking.ServiceEntry{}
 
-	// Set the endpoints, if available.
+	svc := serviceResource.Item.(*coreV1.ServiceSpec)
+	svcMeta := serviceResource.Metadata
+
+	// Apply part of the conversion from the k8s Service.
+	convert.Service(svc, svcMeta, serviceResource.ID.FullName, p.domainSuffix, se)
+
+	// Apply part of the conversion from the k8s Endpoints, if available.
 	if endpoints != nil {
-		se.Endpoints, se.SubjectAltNames = convert.Endpoints(endpoints, p.pods, p.nodes)
+		convert.Endpoints(endpoints, p.pods, p.nodes, se)
 	}
+	return se
+}
 
-	body, err := types.MarshalAny(se)
+func (p *Handler) toMcpResource(fullName resource.FullName, metadata resource.Metadata,
+	serviceEntry proto.Message) (*mcp.Resource, bool) {
+
+	body, err := types.MarshalAny(serviceEntry)
 	if err != nil {
-		scope.Errorf("error serializing proto from source e: %v:", se)
+		scope.Errorf("error serializing proto from source e: %v:", serviceEntry)
 		return nil, false
 	}
 
-	createTime, err := types.TimestampProto(svcMeta.CreateTime)
+	createTime, err := types.TimestampProto(metadata.CreateTime)
 	if err != nil {
-		scope.Errorf("error parsing resource create_time for event metadata (%v): %v", svcMeta, err)
+		scope.Errorf("error parsing resource create_time for event metadata (%v): %v", metadata, err)
 		return nil, false
 	}
 
@@ -289,8 +302,8 @@ func (p *Handler) toMcpResource(svcEntry resource.Entry, endpoints *coreV1.Endpo
 			Name:        fullName.String(),
 			CreateTime:  createTime,
 			Version:     p.versionString(),
-			Labels:      svcMeta.Labels,
-			Annotations: convert.Annotations(svcMeta.Annotations),
+			Labels:      metadata.Labels,
+			Annotations: convert.Annotations(metadata.Annotations),
 		},
 		Body: body,
 	}

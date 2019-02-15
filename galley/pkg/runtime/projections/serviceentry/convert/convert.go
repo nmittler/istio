@@ -15,7 +15,6 @@
 package convert
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -43,7 +42,7 @@ func Annotations(serviceAnnotations resource.Annotations) resource.Annotations {
 }
 
 // Service converts a k8s Service to a networking.ServiceEntry
-func Service(spec *coreV1.ServiceSpec, metadata resource.Metadata, fullName resource.FullName, domainSuffix string) *networking.ServiceEntry {
+func Service(spec *coreV1.ServiceSpec, metadata resource.Metadata, fullName resource.FullName, domainSuffix string, out *networking.ServiceEntry) {
 	resolution := networking.ServiceEntry_STATIC
 	location := networking.ServiceEntry_MESH_INTERNAL
 	endpoints := convertExternalServiceEndpoints(spec, metadata)
@@ -71,17 +70,16 @@ func Service(spec *coreV1.ServiceSpec, metadata resource.Metadata, fullName reso
 		ports = append(ports, convertPort(port))
 	}
 
-	namespace, name := convertFullName(fullName)
-	se := &networking.ServiceEntry{
-		Hosts:      []string{serviceHostname(name, namespace, domainSuffix)},
-		Addresses:  []string{addr},
-		Resolution: resolution,
-		Location:   location,
-		Ports:      ports,
-		Endpoints:  endpoints,
-		ExportTo:   convertExportTo(metadata.Annotations),
-	}
-	return se
+	host := serviceHostname(fullName, domainSuffix)
+
+	// Store everything in the ServiceEntry.
+	out.Hosts = []string{host}
+	out.Addresses = []string{addr}
+	out.Resolution = resolution
+	out.Location = location
+	out.Ports = ports
+	out.Endpoints = endpoints
+	out.ExportTo = convertExportTo(metadata.Annotations)
 }
 
 func convertExportTo(annotations resource.Annotations) []string {
@@ -105,10 +103,10 @@ func convertExportTo(annotations resource.Annotations) []string {
 }
 
 // Endpoints converts k8s Endpoints to networking.ServiceEntry_Endpoint resources and extracts the service accounts for the endpoints.
-func Endpoints(endpoints *coreV1.Endpoints, pods pod.Cache, nodes node.Cache) (eps []*networking.ServiceEntry_Endpoint, serviceAccounts []string) {
-	// Store the service accounts in a set to avoid duplicates.
-	serviceAccountSet := make(map[string]struct{})
-	eps = make([]*networking.ServiceEntry_Endpoint, 0)
+func Endpoints(endpoints *coreV1.Endpoints, pods pod.Cache, nodes node.Cache, out *networking.ServiceEntry) {
+	// Store the subject alternate names in a set to avoid duplicates.
+	subjectAltNameSet := make(map[string]struct{})
+	eps := make([]*networking.ServiceEntry_Endpoint, 0)
 
 	for _, subset := range endpoints.Subsets {
 		// Convert the ports for this subset. They will be re-used for each endpoint in the same subset.
@@ -124,9 +122,8 @@ func Endpoints(endpoints *coreV1.Endpoints, pods pod.Cache, nodes node.Cache) (e
 			ip := address.IP
 			p := pods.GetPodByIP(ip)
 			if p != nil {
-				serviceAccount := strings.TrimSpace(p.ServiceAccountName)
-				if serviceAccount != "" {
-					serviceAccountSet[serviceAccount] = struct{}{}
+				if p.ServiceAccountName != "" {
+					subjectAltNameSet[p.ServiceAccountName] = struct{}{}
 				}
 
 				n := nodes.GetNodeByName(p.NodeName)
@@ -148,21 +145,15 @@ func Endpoints(endpoints *coreV1.Endpoints, pods pod.Cache, nodes node.Cache) (e
 		}
 	}
 
-	// Convert the service accounts to a sorted array.
-	serviceAccounts = make([]string, 0, len(serviceAccountSet))
-	for k := range serviceAccountSet {
-		serviceAccounts = append(serviceAccounts, k)
+	// Convert the subject alternate names to an array.
+	subjectAltNames := make([]string, 0, len(subjectAltNameSet))
+	for k := range subjectAltNameSet {
+		subjectAltNames = append(subjectAltNames, k)
 	}
-	sort.Sort(sort.StringSlice(serviceAccounts))
-	return
-}
+	sort.Sort(sort.StringSlice(subjectAltNames))
 
-func convertFullName(fullName resource.FullName) (namespace, name string) {
-	namespace, name = fullName.InterpretAsNamespaceAndName()
-	if namespace == "" {
-		namespace = coreV1.NamespaceDefault
-	}
-	return
+	out.Endpoints = eps
+	out.SubjectAltNames = subjectAltNames
 }
 
 func convertExternalServiceEndpoints(svc *coreV1.ServiceSpec, serviceMeta resource.Metadata) []*networking.ServiceEntry_Endpoint {
@@ -184,8 +175,12 @@ func convertExternalServiceEndpoints(svc *coreV1.ServiceSpec, serviceMeta resour
 }
 
 // serviceHostname produces FQDN for a k8s service
-func serviceHostname(name, namespace, domainSuffix string) string {
-	return fmt.Sprintf("%s.%s.svc.%s", name, namespace, domainSuffix)
+func serviceHostname(fullName resource.FullName, domainSuffix string) string {
+	namespace, name := fullName.InterpretAsNamespaceAndName()
+	if namespace == "" {
+		namespace = coreV1.NamespaceDefault
+	}
+	return name + "." + namespace + ".svc." + domainSuffix
 }
 
 func convertPort(port coreV1.ServicePort) *networking.Port {

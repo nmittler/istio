@@ -71,7 +71,8 @@ func TestServiceDefaults(t *testing.T) {
 		},
 		Endpoints: []*networking.ServiceEntry_Endpoint{},
 	}
-	actual := convert.Service(&spec, metadata, fullName, domainSuffix)
+	actual := &networking.ServiceEntry{}
+	convert.Service(&spec, metadata, fullName, domainSuffix, actual)
 	g.Expect(actual).ToNot(BeNil())
 	g.Expect(*actual).To(Equal(expected))
 }
@@ -90,7 +91,9 @@ func TestServiceExportTo(t *testing.T) {
 	}
 
 	expected := []string{"a", "b", "c"}
-	actual := convert.Service(&spec, metadata, fullName, domainSuffix)
+	actual := &networking.ServiceEntry{}
+	convert.Service(&spec, metadata, fullName, domainSuffix, actual)
+
 	g.Expect(actual).ToNot(BeNil())
 	g.Expect(actual.ExportTo).To(Equal(expected))
 }
@@ -105,7 +108,8 @@ func TestNoNamespaceShouldUseDefault(t *testing.T) {
 	}
 
 	expected := host(coreV1.NamespaceDefault, "svc1")
-	actual := convert.Service(&spec, metadata, fullName, domainSuffix)
+	actual := &networking.ServiceEntry{}
+	convert.Service(&spec, metadata, fullName, domainSuffix, actual)
 	g.Expect(actual).ToNot(BeNil())
 	g.Expect(len(actual.Hosts)).To(Equal(1))
 	g.Expect(actual.Hosts[0]).To(Equal(expected))
@@ -162,7 +166,8 @@ func TestServicePorts(t *testing.T) {
 					Protocol: string(c.out),
 				},
 			}
-			actual := convert.Service(&spec, metadata, fullName, domainSuffix)
+			actual := &networking.ServiceEntry{}
+			convert.Service(&spec, metadata, fullName, domainSuffix, actual)
 			g.Expect(actual).ToNot(BeNil())
 			g.Expect(actual.GetPorts()).To(Equal(expected))
 		})
@@ -179,7 +184,8 @@ func TestServiceWithEmptyIPShouldHaveNoResolution(t *testing.T) {
 	}
 
 	expected := networking.ServiceEntry_NONE
-	actual := convert.Service(&spec, metadata, fullName, domainSuffix)
+	actual := &networking.ServiceEntry{}
+	convert.Service(&spec, metadata, fullName, domainSuffix, actual)
 	g.Expect(actual).ToNot(BeNil())
 	g.Expect(actual.Resolution).To(Equal(expected))
 }
@@ -194,7 +200,8 @@ func TestServiceWithIPNoneShouldHaveNoResolution(t *testing.T) {
 	}
 
 	expected := networking.ServiceEntry_NONE
-	actual := convert.Service(&spec, metadata, fullName, domainSuffix)
+	actual := &networking.ServiceEntry{}
+	convert.Service(&spec, metadata, fullName, domainSuffix, actual)
 	g.Expect(actual).ToNot(BeNil())
 	g.Expect(actual.Resolution).To(Equal(expected))
 }
@@ -241,7 +248,8 @@ func TestExternalService(t *testing.T) {
 			},
 		},
 	}
-	actual := convert.Service(&spec, metadata, fullName, domainSuffix)
+	actual := &networking.ServiceEntry{}
+	convert.Service(&spec, metadata, fullName, domainSuffix, actual)
 	g.Expect(actual).ToNot(BeNil())
 	g.Expect(*actual).To(Equal(expected))
 }
@@ -267,10 +275,11 @@ func TestEndpointsWithNoSubsets(t *testing.T) {
 	cache := &fakeCache{}
 
 	expectedEndpoints := make([]*networking.ServiceEntry_Endpoint, 0)
-	expectedServiceAccounts := make([]string, 0)
-	actualEndpoints, actualServiceAccounts := convert.Endpoints(&eps, cache, cache)
-	g.Expect(actualEndpoints).To(Equal(expectedEndpoints))
-	g.Expect(actualServiceAccounts).To(Equal(expectedServiceAccounts))
+	expectedSubjectAltNames := make([]string, 0)
+	actual := &networking.ServiceEntry{}
+	convert.Endpoints(&eps, cache, cache, actual)
+	g.Expect(actual.Endpoints).To(Equal(expectedEndpoints))
+	g.Expect(actual.SubjectAltNames).To(Equal(expectedSubjectAltNames))
 }
 
 func TestEndpoints(t *testing.T) {
@@ -375,13 +384,15 @@ func TestEndpoints(t *testing.T) {
 	}
 
 	// Expect that we'll remove duplicate service accounts.
-	expectedServiceAccounts := []string{
+	expectedSubjectAltNames := []string{
 		"sa1",
 		"sa2",
 	}
-	actualEndpoints, actualServiceAccounts := convert.Endpoints(&eps, cache, cache)
-	g.Expect(actualEndpoints).To(Equal(expectedEndpoints))
-	g.Expect(actualServiceAccounts).To(Equal(expectedServiceAccounts))
+	actual := &networking.ServiceEntry{}
+	convert.Endpoints(&eps, cache, cache, actual)
+
+	g.Expect(actual.Endpoints).To(Equal(expectedEndpoints))
+	g.Expect(actual.SubjectAltNames).To(Equal(expectedSubjectAltNames))
 }
 
 func TestEndpointsPodNotFound(t *testing.T) {
@@ -416,10 +427,11 @@ func TestEndpointsPodNotFound(t *testing.T) {
 			},
 		},
 	}
-	expectedServiceAccounts := make([]string, 0)
-	actualEndpoints, actualServiceAccounts := convert.Endpoints(&eps, cache, cache)
-	g.Expect(actualEndpoints).To(Equal(expectedEndpoints))
-	g.Expect(actualServiceAccounts).To(Equal(expectedServiceAccounts))
+	expectedSubjectAltNames := make([]string, 0)
+	actual := &networking.ServiceEntry{}
+	convert.Endpoints(&eps, cache, cache, actual)
+	g.Expect(actual.Endpoints).To(Equal(expectedEndpoints))
+	g.Expect(actual.SubjectAltNames).To(Equal(expectedSubjectAltNames))
 }
 
 func TestEndpointsNodeNotFound(t *testing.T) {
@@ -462,10 +474,11 @@ func TestEndpointsNodeNotFound(t *testing.T) {
 			},
 		},
 	}
-	expectedServiceAccounts := []string{"sa1"}
-	actualEndpoints, actualServiceAccounts := convert.Endpoints(&eps, cache, cache)
-	g.Expect(actualEndpoints).To(Equal(expectedEndpoints))
-	g.Expect(actualServiceAccounts).To(Equal(expectedServiceAccounts))
+	expectedSubjectAltNames := []string{"sa1"}
+	actual := &networking.ServiceEntry{}
+	convert.Endpoints(&eps, cache, cache, actual)
+	g.Expect(actual.Endpoints).To(Equal(expectedEndpoints))
+	g.Expect(actual.SubjectAltNames).To(Equal(expectedSubjectAltNames))
 }
 
 func host(namespace, serviceName string) string {
