@@ -680,9 +680,13 @@ func applyConnectionPool(env *model.Environment, cluster *apiv2.Cluster, setting
 
 		// FIXME: zero is a valid value if explicitly set, otherwise we want to use the default
 		if settings.Http.MaxRetries > 0 {
+			fmt.Printf("NM: [%s Cluster %s] overridding HTTP MaxRetries=%d\n", direction, cluster.Name, settings.Http.MaxRetries)
 			threshold.MaxRetries = &types.UInt32Value{Value: uint32(settings.Http.MaxRetries)}
 		}
 	}
+
+	fmt.Printf("NM: [%s Cluster %s] setting MaxRetries=%d\n", direction, cluster.Name, settings.Http.MaxRetries)
+
 
 	if settings.Tcp != nil {
 		if settings.Tcp.ConnectTimeout != nil {

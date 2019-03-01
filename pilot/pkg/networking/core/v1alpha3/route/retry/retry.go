@@ -15,6 +15,7 @@
 package retry
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -61,11 +62,13 @@ func DefaultPolicy() *route.RetryPolicy {
 func ConvertPolicy(in *networking.HTTPRetry) *route.RetryPolicy {
 	if in == nil {
 		// No policy was set, use a default.
+		fmt.Printf("NM: configured retry policy is nil, using default:\n%v\n", DefaultPolicy())
 		return DefaultPolicy()
 	}
 
 	if in.Attempts <= 0 {
 		// Configuration is explicitly disabling the retry policy.
+		fmt.Printf("NM: configured retry policy attempts==0, disabling retries\n")
 		return nil
 	}
 
@@ -73,7 +76,11 @@ func ConvertPolicy(in *networking.HTTPRetry) *route.RetryPolicy {
 	out := DefaultPolicy()
 	out.NumRetries = &types.UInt32Value{Value: uint32(in.GetAttempts())}
 
+	fmt.Printf("NM: overriding retry policy attempts==%d\n", in.GetAttempts())
+
 	if in.RetryOn != "" {
+		fmt.Printf("NM: overriding retryOn==%s\n", in.RetryOn)
+
 		// Allow the incoming configuration to specify both Envoy RetryOn and RetriableStatusCodes. Any integers are
 		// assumed to be status codes.
 		out.RetryOn, out.RetriableStatusCodes = parseRetryOn(in.RetryOn)
@@ -83,6 +90,9 @@ func ConvertPolicy(in *networking.HTTPRetry) *route.RetryPolicy {
 		d := util.GogoDurationToDuration(in.PerTryTimeout)
 		out.PerTryTimeout = &d
 	}
+
+	fmt.Printf("NM: configured retry policy:\n%v\n", out)
+
 	return out
 }
 
