@@ -181,6 +181,7 @@ type PilotArgs struct {
 	KeepaliveOptions     *istiokeepalive.Options
 	// ForceStop is set as true when used for testing to make the server stop quickly
 	ForceStop bool
+	KubeClient kubernetes.Interface
 }
 
 // Server contains the runtime configuration for the Pilot discovery service.
@@ -484,7 +485,9 @@ func (s *Server) getKubeCfgFile(args *PilotArgs) string {
 
 // initKubeClient creates the k8s client if running in an k8s environment.
 func (s *Server) initKubeClient(args *PilotArgs) error {
-	if hasKubeRegistry(args) && args.Config.FileDir == "" {
+	if args.KubeClient != nil {
+		s.kubeClient = args.KubeClient
+	} else if hasKubeRegistry(args) && args.Config.FileDir == "" {
 		client, kuberr := kubelib.CreateClientset(s.getKubeCfgFile(args), "")
 		if kuberr != nil {
 			return multierror.Prefix(kuberr, "failed to connect to Kubernetes API.")
