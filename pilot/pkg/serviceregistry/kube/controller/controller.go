@@ -205,10 +205,12 @@ func (c *Controller) createCacheHandler(informer cache.SharedIndexInformer, otyp
 			// TODO: filtering functions to skip over un-referenced resources (perf)
 			AddFunc: func(obj interface{}) {
 				incrementEvent(otype, "add")
+				log.Warnf("NM: [%s] Add: %v", otype, obj)
 				c.queue.Push(kube.Task{Handler: handler.Apply, Obj: obj, Event: model.EventAdd})
 			},
 			UpdateFunc: func(old, cur interface{}) {
 				if !reflect.DeepEqual(old, cur) {
+					log.Warnf("NM: [%s] Update %s: %v", otype, cur)
 					incrementEvent(otype, "update")
 					c.queue.Push(kube.Task{Handler: handler.Apply, Obj: cur, Event: model.EventUpdate})
 				} else {
@@ -216,6 +218,7 @@ func (c *Controller) createCacheHandler(informer cache.SharedIndexInformer, otyp
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
+				log.Warnf("NM: [%s] Delete %s: %v", otype, obj)
 				incrementEvent(otype, "delete")
 				c.queue.Push(kube.Task{Handler: handler.Apply, Obj: obj, Event: model.EventDelete})
 			},
@@ -231,6 +234,7 @@ func (c *Controller) createEDSCacheHandler(informer cache.SharedIndexInformer, o
 		cache.ResourceEventHandlerFuncs{
 			// TODO: filtering functions to skip over un-referenced resources (perf)
 			AddFunc: func(obj interface{}) {
+				log.Warnf("NM: [%s] Add: %v", otype, obj)
 				incrementEvent(otype, "add")
 				c.queue.Push(kube.Task{Handler: handler.Apply, Obj: obj, Event: model.EventAdd})
 			},
@@ -240,6 +244,7 @@ func (c *Controller) createEDSCacheHandler(informer cache.SharedIndexInformer, o
 				curE := cur.(*v1.Endpoints)
 
 				if !reflect.DeepEqual(oldE.Subsets, curE.Subsets) {
+					log.Warnf("NM: [%s] Update: %v", otype, curE)
 					incrementEvent(otype, "update")
 					c.queue.Push(kube.Task{Handler: handler.Apply, Obj: cur, Event: model.EventUpdate})
 				} else {
@@ -247,6 +252,7 @@ func (c *Controller) createEDSCacheHandler(informer cache.SharedIndexInformer, o
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
+				log.Warnf("NM: [%s] Delete: %v", otype, obj)
 				incrementEvent(otype, "delete")
 				// Deleting the endpoints results in an empty set from EDS perspective - only
 				// deleting the service should delete the resources. The full sync replaces the

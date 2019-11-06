@@ -161,11 +161,13 @@ func (c *controller) createInformer(
 		cache.ResourceEventHandlerFuncs{
 			// TODO: filtering functions to skip over un-referenced resources (perf)
 			AddFunc: func(obj interface{}) {
+				log.Warnf("NM: [%s] Add: %v", otype, obj)
 				incrementEvent(otype, "add")
 				c.queue.Push(kube.NewTask(handler.Apply, obj, model.EventAdd))
 			},
 			UpdateFunc: func(old, cur interface{}) {
 				if !reflect.DeepEqual(old, cur) {
+					log.Warnf("NM: [%s] Update: %v", otype, cur)
 					incrementEvent(otype, "update")
 					c.queue.Push(kube.NewTask(handler.Apply, cur, model.EventUpdate))
 				} else {
@@ -173,6 +175,7 @@ func (c *controller) createInformer(
 				}
 			},
 			DeleteFunc: func(obj interface{}) {
+				log.Warnf("NM: [%s] Delete: %v", otype, obj)
 				incrementEvent(otype, "delete")
 				c.queue.Push(kube.NewTask(handler.Apply, obj, model.EventDelete))
 			},
