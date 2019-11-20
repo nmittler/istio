@@ -27,6 +27,9 @@ import (
 	"istio.io/istio/pkg/config/labels"
 )
 
+var _ model.Controller = &Registry{}
+var _ model.ServiceDiscovery = &Registry{}
+
 // Registry specifies the collection of service registry related interfaces
 type Registry struct {
 	// Name is the type of the registry - Kubernetes, Consul, etc.
@@ -34,6 +37,7 @@ type Registry struct {
 	// ClusterID is used when multiple registries of the same type are used,
 	// for example in the case of K8S multicluster.
 	ClusterID string
+
 	model.Controller
 	model.ServiceDiscovery
 }
@@ -52,7 +56,6 @@ type Controller struct {
 
 // NewController creates a new Aggregate controller
 func NewController() *Controller {
-
 	return &Controller{
 		registries: []Registry{},
 	}
@@ -291,28 +294,6 @@ func (c *Controller) Run(stop <-chan struct{}) {
 
 	<-stop
 	log.Info("Registry Aggregator terminated")
-}
-
-// AppendServiceHandler implements a service catalog operation
-func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) error {
-	for _, r := range c.GetRegistries() {
-		if err := r.AppendServiceHandler(f); err != nil {
-			log.Infof("Fail to append service handler to adapter %s", r.Name)
-			return err
-		}
-	}
-	return nil
-}
-
-// AppendInstanceHandler implements a service instance catalog operation
-func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.Event)) error {
-	for _, r := range c.GetRegistries() {
-		if err := r.AppendInstanceHandler(f); err != nil {
-			log.Infof("Fail to append instance handler to adapter %s", r.Name)
-			return err
-		}
-	}
-	return nil
 }
 
 // GetIstioServiceAccounts implements model.ServiceAccounts operation

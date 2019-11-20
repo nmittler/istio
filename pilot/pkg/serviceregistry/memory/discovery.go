@@ -273,12 +273,6 @@ func (sd *ServiceDiscovery) GetIstioServiceAccounts(svc *model.Service, ports []
 
 type MockController struct{}
 
-func (c *MockController) AppendServiceHandler(f func(*model.Service, model.Event)) error {
-	return nil
-}
-
-func (c *MockController) AppendInstanceHandler(f func(*model.ServiceInstance, model.Event)) error {
-	return nil
-}
+var _ model.Controller = &MockController{}
 
 func (c *MockController) Run(<-chan struct{}) {}

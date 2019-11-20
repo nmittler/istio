@@ -53,7 +53,7 @@ func TestConvertProtocol(t *testing.T) {
 	for _, tt := range protocols {
 		out := convertPort(tt.port, tt.name)
 		if out.Protocol != tt.out {
-			t.Errorf("convertProtocol(%v, %q) => %q, want %q", tt.port, tt.name, out, tt.out)
+			t.Fatalf("convertProtocol(%v, %q) => %q, want %q", tt.port, tt.name, out, tt.out)
 		}
 	}
 }
@@ -61,12 +61,12 @@ func TestConvertProtocol(t *testing.T) {
 func TestConvertLabels(t *testing.T) {
 	out := convertLabels(goodLabels)
 	if len(out) != len(goodLabels) {
-		t.Errorf("convertLabels(%q) => length %v, want %v", goodLabels, len(out), len(goodLabels))
+		t.Fatalf("convertLabels(%q) => length %v, want %v", goodLabels, len(out), len(goodLabels))
 	}
 
 	out = convertLabels(badLabels)
 	if len(out) == len(badLabels) {
-		t.Errorf("convertLabels(%q) => length %v, want %v", badLabels, len(out), len(badLabels)-1)
+		t.Fatalf("convertLabels(%q) => length %v, want %v", badLabels, len(out), len(badLabels)-1)
 	}
 }
 
@@ -98,52 +98,52 @@ func TestConvertInstance(t *testing.T) {
 	out := convertInstance(&consulServiceInst)
 
 	if out.Endpoint.ServicePort.Protocol != protocol.UDP {
-		t.Errorf("convertInstance() => %v, want %v", out.Endpoint.ServicePort.Protocol, protocol.UDP)
+		t.Fatalf("convertInstance() => %v, want %v", out.Endpoint.ServicePort.Protocol, protocol.UDP)
 	}
 
 	if out.Endpoint.ServicePort.Name != p {
-		t.Errorf("convertInstance() => %v, want %v", out.Endpoint.ServicePort.Name, p)
+		t.Fatalf("convertInstance() => %v, want %v", out.Endpoint.ServicePort.Name, p)
 	}
 
 	if out.Endpoint.ServicePort.Port != port {
-		t.Errorf("convertInstance() => %v, want %v", out.Endpoint.ServicePort.Port, port)
+		t.Fatalf("convertInstance() => %v, want %v", out.Endpoint.ServicePort.Port, port)
 	}
 
 	if out.Endpoint.Locality != dc {
-		t.Errorf("convertInstance() => %v, want %v", out.Endpoint.Locality, dc)
+		t.Fatalf("convertInstance() => %v, want %v", out.Endpoint.Locality, dc)
 	}
 
 	if out.Endpoint.Address != ip {
-		t.Errorf("convertInstance() => %v, want %v", out.Endpoint.Address, ip)
+		t.Fatalf("convertInstance() => %v, want %v", out.Endpoint.Address, ip)
 	}
 
 	if len(out.Labels) != 2 {
-		t.Errorf("convertInstance() len(Labels) => %v, want %v", len(out.Labels), 2)
+		t.Fatalf("convertInstance() len(Labels) => %v, want %v", len(out.Labels), 2)
 	}
 
 	if out.Labels[tagKey1] != tagVal1 || out.Labels[tagKey2] != tagVal2 {
-		t.Errorf("convertInstance() => missing or incorrect tag in %q", out.Labels)
+		t.Fatalf("convertInstance() => missing or incorrect tag in %q", out.Labels)
 	}
 
 	if out.Service.Hostname != serviceHostname(name) {
-		t.Errorf("convertInstance() bad service hostname => %q, want %q",
+		t.Fatalf("convertInstance() bad service hostname => %q, want %q",
 			out.Service.Hostname, serviceHostname(name))
 	}
 
 	if out.Service.Address != ip {
-		t.Errorf("convertInstance() bad service address => %q, want %q", out.Service.Address, ip)
+		t.Fatalf("convertInstance() bad service address => %q, want %q", out.Service.Address, ip)
 	}
 
 	if len(out.Service.Ports) != 1 {
-		t.Errorf("convertInstance() incorrect # of service ports => %q, want %q", len(out.Service.Ports), 1)
+		t.Fatalf("convertInstance() incorrect # of service ports => %q, want %q", len(out.Service.Ports), 1)
 	}
 
 	if out.Service.Ports[0].Port != port || out.Service.Ports[0].Name != p {
-		t.Errorf("convertInstance() incorrect service port => %q", out.Service.Ports[0])
+		t.Fatalf("convertInstance() incorrect service port => %q", out.Service.Ports[0])
 	}
 
 	if out.Service.External() {
-		t.Error("convertInstance() should not be external service")
+		t.Fatal("convertInstance() should not be external service")
 	}
 }
 
@@ -151,7 +151,7 @@ func TestServiceHostname(t *testing.T) {
 	out := serviceHostname("productpage")
 
 	if out != "productpage.service.consul" {
-		t.Errorf("serviceHostname() => %q, want %q", out, "productpage.service.consul")
+		t.Fatalf("serviceHostname() => %q, want %q", out, "productpage.service.consul")
 	}
 }
 
@@ -188,16 +188,16 @@ func TestConvertService(t *testing.T) {
 	out := convertService(consulServiceInsts)
 
 	if out.Hostname != serviceHostname(name) {
-		t.Errorf("convertService() bad hostname => %q, want %q",
+		t.Fatalf("convertService() bad hostname => %q, want %q",
 			out.Hostname, serviceHostname(name))
 	}
 
 	if out.External() {
-		t.Error("convertService() should not be an external service")
+		t.Fatal("convertService() should not be an external service")
 	}
 
 	if len(out.Ports) != 1 {
-		t.Errorf("convertService() incorrect # of ports => %v, want %v",
+		t.Fatalf("convertService() incorrect # of ports => %v, want %v",
 			len(out.Ports), 1)
 	}
 }

@@ -43,11 +43,11 @@ type PodCache struct {
 	c *Controller
 }
 
-func newPodCache(ch cacheHandler, c *Controller) *PodCache {
+func newPodCache(c *Controller, ch cacheHandler) *PodCache {
 	out := &PodCache{
 		cacheHandler: ch,
-		c:            c,
 		podsByIP:     make(map[string]string),
+		c: c,
 	}
 
 	ch.handler.Append(out.event)
@@ -123,7 +123,7 @@ func (pc *PodCache) event(obj interface{}, ev model.Event) error {
 
 func (pc *PodCache) proxyUpdates(ip string) {
 	if pc.c != nil && pc.c.XDSUpdater != nil {
-		pc.c.XDSUpdater.ProxyUpdate(pc.c.ClusterID, ip)
+		pc.c.XDSUpdater.ProxyUpdate(pc.c.clusterID, ip)
 	}
 }
 

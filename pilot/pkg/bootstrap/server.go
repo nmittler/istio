@@ -263,6 +263,7 @@ type Server struct {
 	EnvoyXdsServer    *envoyv2.DiscoveryServer
 	ServiceController *aggregate.Controller
 
+	environment *model.Environment
 	mesh             *meshconfig.MeshConfig
 	meshNetworks     *meshconfig.MeshNetworks
 	configController model.ConfigStoreCache
@@ -283,6 +284,8 @@ type Server struct {
 	incrementalMcpOptions *coredatamodel.Options
 	mcpOptions            *coredatamodel.Options
 	certController        *chiron.WebhookController
+	kubeHandler           *kubeHandler
+	defaultHandler        *defaultHandler
 }
 
 var podNamespaceVar = env.RegisterStringVar("POD_NAMESPACE", "", "")
@@ -306,6 +309,8 @@ func NewServer(args PilotArgs) (*Server, error) {
 
 	s := &Server{
 		fileWatcher: filewatcher.NewWatcher(),
+		kubeHandler: &kubeHandler{},
+		defaultHandler: &defaultHandler{},
 	}
 
 	prometheus.EnableHandlingTimeHistogram()
@@ -329,9 +334,22 @@ func NewServer(args PilotArgs) (*Server, error) {
 	if err := s.initConfigController(&args); err != nil {
 		return nil, fmt.Errorf("config controller: %v", err)
 	}
+
+	// Create the environment now, since it's needed for creation on the service controllers.
+	s.environment = &model.Environment{
+		Mesh:             s.mesh,
+		MeshNetworks:     s.meshNetworks,
+		IstioConfigStore: s.istioConfigStore,
+		PushContext:      model.NewPushContext(),
+	}
+
 	if err := s.initServiceControllers(&args); err != nil {
 		return nil, fmt.Errorf("service controllers: %v", err)
 	}
+
+	// Save the service controller in the environment.
+	s.environment.ServiceDiscovery = s.ServiceController
+
 	if err := s.initDiscoveryService(&args); err != nil {
 		return nil, fmt.Errorf("discovery service: %v", err)
 	}
@@ -414,7 +432,6 @@ func (s *Server) initClusterRegistries(args *PilotArgs) (err error) {
 
 // GetMeshConfig fetches the ProxyMesh configuration from Kubernetes ConfigMap.
 func GetMeshConfig(kube kubernetes.Interface, namespace, name string) (*v1.ConfigMap, *meshconfig.MeshConfig, error) {
-
 	if kube == nil {
 		defaultMesh := mesh.DefaultMeshConfig()
 		return nil, &defaultMesh, nil
@@ -567,7 +584,6 @@ func (s *Server) initKubeClient(args *PilotArgs) error {
 			return multierror.Prefix(kuberr, "failed to connect to Kubernetes API.")
 		}
 		s.kubeClient = client
-
 	}
 
 	return nil
@@ -784,11 +800,11 @@ func (s *Server) sseMCPController(args *PilotArgs,
 	s.incrementalMcpOptions = &coredatamodel.Options{
 		DomainSuffix: args.Config.ControllerOptions.DomainSuffix,
 	}
-	controller := coredatamodel.NewSyntheticServiceEntryController(s.incrementalMcpOptions)
+	sseController := coredatamodel.NewSyntheticServiceEntryController(s.incrementalMcpOptions)
 	s.discoveryOptions = &coredatamodel.DiscoveryOptions{
 		DomainSuffix: args.Config.ControllerOptions.DomainSuffix,
 	}
-	s.mcpDiscovery = coredatamodel.NewMCPDiscovery(controller, s.discoveryOptions)
+	s.mcpDiscovery = coredatamodel.NewMCPDiscovery(sseController, s.discoveryOptions)
 	incrementalSinkOptions := &sink.Options{
 		CollectionOptions: []sink.CollectionOptions{
 			{
@@ -796,7 +812,7 @@ func (s *Server) sseMCPController(args *PilotArgs,
 				Incremental: true,
 			},
 		},
-		Updater:  controller,
+		Updater:  sseController,
 		ID:       clientNodeID,
 		Reporter: reporter,
 	}
@@ -804,7 +820,7 @@ func (s *Server) sseMCPController(args *PilotArgs,
 	incMcpClient := sink.NewClient(incSrcClient, incrementalSinkOptions)
 	configz.Register(incMcpClient)
 	*clients = append(*clients, incMcpClient)
-	*configStores = append(*configStores, controller)
+	*configStores = append(*configStores, sseController)
 }
 
 // initConfigController creates the config controller in the pilotConfig.
@@ -904,6 +920,9 @@ func (s *Server) createK8sServiceControllers(serviceControllers *aggregate.Contr
 	clusterID := string(serviceregistry.KubernetesRegistry)
 	log.Infof("Primary Cluster name: %s", clusterID)
 	args.Config.ControllerOptions.ClusterID = clusterID
+	args.Config.ControllerOptions.Mesh = s.mesh
+	args.Config.ControllerOptions.ProxyMetrics = s.environment
+	args.Config.ControllerOptions.Handler = handler
 	kubectl := controller2.NewController(s.kubeClient, args.Config.ControllerOptions)
 	s.kubeRegistry = kubectl
 	serviceControllers.AddRegistry(
@@ -944,6 +963,7 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 				return err
 			}
 		case serviceregistry.MCPRegistry:
+			// TODO(nmittler): Fix me.
 			if s.mcpDiscovery != nil {
 				serviceControllers.AddRegistry(
 					aggregate.Registry{
@@ -963,7 +983,8 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 		}
 	}
 
-	serviceEntryStore := external.NewServiceDiscovery(s.configController, s.istioConfigStore)
+	// TODO(nmittler): Investigate using the kube handler here.
+	serviceEntryStore := external.NewServiceDiscovery(s.defaultHandler, s.configController, s.istioConfigStore)
 
 	// add service entry registry to aggregator by default
 	serviceEntryRegistry := aggregate.Registry{
@@ -998,15 +1019,7 @@ func (s *Server) initMemoryRegistry(serviceControllers *aggregate.Controller) {
 }
 
 func (s *Server) initDiscoveryService(args *PilotArgs) error {
-	environment := &model.Environment{
-		Mesh:             s.mesh,
-		MeshNetworks:     s.meshNetworks,
-		IstioConfigStore: s.istioConfigStore,
-		ServiceDiscovery: s.ServiceController,
-		PushContext:      model.NewPushContext(),
-	}
-
-	s.EnvoyXdsServer = envoyv2.NewDiscoveryServer(environment,
+	s.EnvoyXdsServer = envoyv2.NewDiscoveryServer(s.environment,
 		istio_networking.NewConfigGenerator(args.Plugins))
 	s.mux = http.NewServeMux()
 	s.EnvoyXdsServer.InitDebug(s.mux, s.ServiceController, args.DiscoveryOptions.EnableProfiling)
@@ -1030,7 +1043,7 @@ func (s *Server) initDiscoveryService(args *PilotArgs) error {
 		clusterID := args.Config.ControllerOptions.ClusterID
 		s.incrementalMcpOptions.XDSUpdater = s.EnvoyXdsServer
 		s.incrementalMcpOptions.ClusterID = clusterID
-		s.discoveryOptions.Env = environment
+		s.discoveryOptions.Env = s.environment
 		s.discoveryOptions.ClusterID = clusterID
 	}
 
@@ -1150,8 +1163,7 @@ func (s *Server) initDiscoveryService(args *PilotArgs) error {
 
 func (s *Server) initConsulRegistry(serviceControllers *aggregate.Controller, args *PilotArgs) error {
 	log.Infof("Consul url: %v", args.Service.Consul.ServerURL)
-	conctl, conerr := consul.NewController(
-		args.Service.Consul.ServerURL)
+	conctl, conerr := consul.NewController(s.defaultHandler, args.Service.Consul.ServerURL)
 	if conerr != nil {
 		return fmt.Errorf("failed to create Consul controller: %v", conerr)
 	}

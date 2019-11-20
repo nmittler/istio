@@ -28,32 +28,38 @@ import (
 	"istio.io/istio/pkg/spiffe"
 )
 
+var _ model.Controller = &Controller{}
+
 // Controller communicates with Consul and monitors for changes
 type Controller struct {
 	client           *api.Client
 	monitor          Monitor
+	handler          model.ServiceDiscoveryHandler
 	services         map[string]*model.Service //key hostname value service
 	servicesList     []*model.Service
 	serviceInstances map[string][]*model.ServiceInstance //key hostname value serviceInstance array
 	cacheMutex       sync.Mutex
-	initDone         bool
+	cacheSynced      bool
 }
 
 // NewController creates a new Consul controller
-func NewController(addr string) (*Controller, error) {
+func NewController(handler model.ServiceDiscoveryHandler, addr string) (*Controller, error) {
 	conf := api.DefaultConfig()
 	conf.Address = addr
 
 	client, err := api.NewClient(conf)
-	monitor := NewConsulMonitor(client)
+	monitor := &consulMonitor{
+		discovery: client,
+	}
 	controller := Controller{
 		monitor: monitor,
 		client:  client,
+		handler: handler,
 	}
 
-	//Watch the change events to refresh local caches
-	monitor.AppendServiceHandler(controller.ServiceChanged)
-	monitor.AppendInstanceHandler(controller.InstanceChanged)
+	// Watch the change events to refresh local caches
+	monitor.handler = controller.handleMonitor
+
 	return &controller, err
 }
 
@@ -206,24 +212,6 @@ func (c *Controller) Run(stop <-chan struct{}) {
 	c.monitor.Start(stop)
 }
 
-// AppendServiceHandler implements a service catalog operation
-func (c *Controller) AppendServiceHandler(f func(*model.Service, model.Event)) error {
-	c.monitor.AppendServiceHandler(func(instances []*api.CatalogService, event model.Event) error {
-		f(convertService(instances), event)
-		return nil
-	})
-	return nil
-}
-
-// AppendInstanceHandler implements a service catalog operation
-func (c *Controller) AppendInstanceHandler(f func(*model.ServiceInstance, model.Event)) error {
-	c.monitor.AppendInstanceHandler(func(instance *api.CatalogService, event model.Event) error {
-		f(convertInstance(instance), event)
-		return nil
-	})
-	return nil
-}
-
 // GetIstioServiceAccounts implements model.ServiceAccounts operation TODO
 func (c *Controller) GetIstioServiceAccounts(svc *model.Service, ports []int) []string {
 	// Need to get service account of service registered with consul
@@ -238,7 +226,7 @@ func (c *Controller) GetIstioServiceAccounts(svc *model.Service, ports []int) []
 }
 
 func (c *Controller) initCache() error {
-	if c.initDone {
+	if c.cacheSynced {
 		return nil
 	}
 
@@ -271,7 +259,7 @@ func (c *Controller) initCache() error {
 		c.servicesList = append(c.servicesList, value)
 	}
 
-	c.initDone = true
+	c.cacheSynced = true
 	return nil
 }
 
@@ -296,18 +284,17 @@ func (c *Controller) getCatalogService(name string, q *api.QueryOptions) ([]*api
 	return endpoints, nil
 }
 
-func (c *Controller) refreshCache() {
+func (c *Controller) handleMonitor() {
+	c.dirtyCache()
+
+	// TODO(nmittler): Hack that relies on the fact that the default handler always does a full XDS update.
+	//  We should eventually re-write this controller to real service/endpoints events.
+	c.handler.OnServiceEvent("", nil, model.EventAdd)
+}
+
+// dirtyCache marks the cache as dirty to force a refresh of the cache the next time data is requested.
+func (c *Controller) dirtyCache() {
 	c.cacheMutex.Lock()
 	defer c.cacheMutex.Unlock()
-	c.initDone = false
-}
-
-func (c *Controller) InstanceChanged(instance *api.CatalogService, event model.Event) error {
-	c.refreshCache()
-	return nil
-}
-
-func (c *Controller) ServiceChanged(instances []*api.CatalogService, event model.Event) error {
-	c.refreshCache()
-	return nil
+	c.cacheSynced = false
 }

@@ -28,14 +28,14 @@ import (
 // merge with aggregate (caching, events), and possibly merge both into the
 // config directory, for a single top-level cache and event system.
 
-type serviceHandler func(*model.Service, model.Event)
-type instanceHandler func(*model.ServiceInstance, model.Event)
+var _ model.Controller = &ServiceEntryStore{}
+var _ model.ServiceDiscovery = &ServiceEntryStore{}
 
-// ServiceEntryStore communicates with ServiceEntry CRDs and monitors for changes
+// ServiceEntryStore communicates with ServiceEntry CRDs and monitors for changes.
 type ServiceEntryStore struct {
-	serviceHandlers  []serviceHandler
-	instanceHandlers []instanceHandler
-	store            model.IstioConfigStore
+	callbacks model.ConfigStoreCache
+	store     model.IstioConfigStore
+	handler   model.ServiceDiscoveryHandler
 
 	storeMutex sync.RWMutex
 
@@ -48,54 +48,43 @@ type ServiceEntryStore struct {
 	updateNeeded bool
 }
 
-// NewServiceDiscovery creates a new ServiceEntry discovery service
-func NewServiceDiscovery(callbacks model.ConfigStoreCache, store model.IstioConfigStore) *ServiceEntryStore {
+// NewServiceDiscovery creates a new ServiceEntry discovery service. The given handler will be notified
+// when there are changes to any service. No events will be triggered for endpoints.
+func NewServiceDiscovery(handler model.ServiceDiscoveryHandler, callbacks model.ConfigStoreCache,
+	store model.IstioConfigStore) *ServiceEntryStore {
 	c := &ServiceEntryStore{
-		serviceHandlers:  make([]serviceHandler, 0),
-		instanceHandlers: make([]instanceHandler, 0),
-		store:            store,
-		ip2instance:      map[string][]*model.ServiceInstance{},
-		instances:        map[host.Name]map[string][]*model.ServiceInstance{},
-		updateNeeded:     true,
+		callbacks:    callbacks,
+		store:        store,
+		handler:      handler,
+		ip2instance:  map[string][]*model.ServiceInstance{},
+		instances:    map[host.Name]map[string][]*model.ServiceInstance{},
+		updateNeeded: true,
 	}
-	if callbacks != nil {
-		callbacks.RegisterEventHandler(schemas.ServiceEntry.Type, func(config model.Config, event model.Event) {
+
+	return c
+}
+
+// Run is used by some controllers to execute background jobs after init is done.
+func (d *ServiceEntryStore) Run(stop <-chan struct{}) {
+	if d.callbacks != nil {
+		d.callbacks.RegisterEventHandler(schemas.ServiceEntry.Type, func(config model.Config, event model.Event) {
 			// Recomputing the index here is too expensive.
-			c.changeMutex.Lock()
-			c.lastChange = time.Now()
-			c.updateNeeded = true
-			c.changeMutex.Unlock()
+			d.changeMutex.Lock()
+			d.lastChange = time.Now()
+			d.updateNeeded = true
+			d.changeMutex.Unlock()
 
 			// TODO : Currently any update to ServiceEntry triggers a full push. We need to identify what has actually
 			// changed and call appropriate handlers - for example call only service handler for the changed services
 			// and call instance handlers only when instance update happens. This requires us to rework the handlers to
 			// have both old and new objects so that they can compare and be smart.
 			services := convertServices(config)
-			for _, handler := range c.serviceHandlers {
-				for _, service := range services {
-					go handler(service, event)
-				}
+			for _, service := range services {
+				go d.handler.OnServiceEvent("", service, event)
 			}
 		})
 	}
-
-	return c
 }
-
-// AppendServiceHandler adds service resource event handler
-func (d *ServiceEntryStore) AppendServiceHandler(f func(*model.Service, model.Event)) error {
-	d.serviceHandlers = append(d.serviceHandlers, f)
-	return nil
-}
-
-// AppendInstanceHandler adds instance event handler.
-func (d *ServiceEntryStore) AppendInstanceHandler(f func(*model.ServiceInstance, model.Event)) error {
-	d.instanceHandlers = append(d.instanceHandlers, f)
-	return nil
-}
-
-// Run is used by some controllers to execute background jobs after init is done.
-func (d *ServiceEntryStore) Run(stop <-chan struct{}) {}
 
 // Services list declarations of all services in the system
 func (d *ServiceEntryStore) Services() ([]*model.Service, error) {

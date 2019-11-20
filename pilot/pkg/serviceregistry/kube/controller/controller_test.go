@@ -156,7 +156,7 @@ func (fx *FakeXdsUpdater) Clear() {
 func newLocalController(t *testing.T) (*Controller, *FakeXdsUpdater) {
 	fx := NewFakeXDS()
 	ki := makeClient(t)
-	ctl := NewController(ki, Options{
+	ctl := NewController(model.EmptyServiceDiscoveryHandler(), ki, Options{
 		WatchedNamespace: "",
 		ResyncPeriod:     resync,
 		DomainSuffix:     domainSuffix,
@@ -171,17 +171,19 @@ func newLocalController(t *testing.T) (*Controller, *FakeXdsUpdater) {
 	return ctl, fx
 }
 
-func newFakeController(_ *testing.T) (*Controller, *FakeXdsUpdater) {
+func newFakeController() (*Controller, *FakeXdsUpdater) {
+	return newFakeControllerWithHandler(model.EmptyServiceDiscoveryHandler())
+}
+
+func newFakeControllerWithHandler(handler model.ServiceDiscoveryHandler) (*Controller, *FakeXdsUpdater) {
 	fx := NewFakeXDS()
 	clientSet := fake.NewSimpleClientset()
-	c := NewController(clientSet, Options{
+	c := NewController(handler, clientSet, Options{
 		WatchedNamespace: "", // tests create resources in multiple ns
 		ResyncPeriod:     resync,
 		DomainSuffix:     domainSuffix,
 		XDSUpdater:       fx,
 	})
-	_ = c.AppendInstanceHandler(func(instance *model.ServiceInstance, event model.Event) {})
-	_ = c.AppendServiceHandler(func(service *model.Service, event model.Event) {})
 	c.Env = &model.Environment{
 		Mesh: &meshconfig.MeshConfig{
 			MixerCheckServer: "mixer",
@@ -192,7 +194,7 @@ func newFakeController(_ *testing.T) (*Controller, *FakeXdsUpdater) {
 }
 
 func TestServices(t *testing.T) {
-	ctl, fx := newFakeController(t)
+	ctl, fx := newFakeController()
 	defer ctl.Stop()
 	t.Parallel()
 	ns := "ns-test"
@@ -403,7 +405,7 @@ func TestController_GetPodLocality(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 
 			// Setup kube caches
-			controller, fx := newFakeController(t)
+			controller, fx := newFakeController()
 			defer controller.Stop()
 			addNodes(t, controller, c.nodes...)
 			addPods(t, controller, c.pods...)
@@ -434,7 +436,7 @@ func TestController_GetPodLocality(t *testing.T) {
 }
 
 func TestGetProxyServiceInstances(t *testing.T) {
-	controller, fx := newFakeController(t)
+	controller, fx := newFakeController()
 	defer controller.Stop()
 	p := generatePod("128.0.0.1", "pod1", "nsa", "foo", "node1", map[string]string{"app": "test-app"}, map[string]string{})
 	addPods(t, controller, p)
@@ -688,7 +690,7 @@ func TestGetProxyServiceInstancesWithMultiIPs(t *testing.T) {
 	for _, c := range testCases {
 		t.Run(c.name, func(t *testing.T) {
 			// Setup kube caches
-			controller, fx := newFakeController(t)
+			controller, fx := newFakeController()
 			defer controller.Stop()
 			addPods(t, controller, c.pods...)
 			for _, pod := range c.pods {
@@ -722,7 +724,7 @@ func TestController_GetIstioServiceAccounts(t *testing.T) {
 	spiffe.SetTrustDomain(domainSuffix)
 	defer spiffe.SetTrustDomain(oldTrustDomain)
 
-	controller, fx := newFakeController(t)
+	controller, fx := newFakeController()
 	defer controller.Stop()
 
 	sa1 := "acct1"
@@ -791,7 +793,7 @@ func TestController_GetIstioServiceAccounts(t *testing.T) {
 }
 
 func TestWorkloadHealthCheckInfo(t *testing.T) {
-	controller, _ := newFakeController(t)
+	controller, _ := newFakeController()
 	defer controller.Stop()
 
 	pod := generatePodWithProbes("128.0.0.1", "pod1", "nsa1", "", "node1", "/ready", intstr.Parse("8080"), "/live", intstr.Parse("9090"))
@@ -834,7 +836,7 @@ func TestWorkloadHealthCheckInfo(t *testing.T) {
 }
 
 func TestWorkloadHealthCheckInfoPrometheusScrape(t *testing.T) {
-	controller, _ := newFakeController(t)
+	controller, _ := newFakeController()
 	defer controller.Stop()
 
 	pod := generatePod("128.0.1.6", "pod1", "nsA", "", "node1", map[string]string{"app": "test-app"},
@@ -860,7 +862,7 @@ func TestWorkloadHealthCheckInfoPrometheusScrape(t *testing.T) {
 }
 
 func TestWorkloadHealthCheckInfoPrometheusPath(t *testing.T) {
-	controller, _ := newFakeController(t)
+	controller, _ := newFakeController()
 	defer controller.Stop()
 
 	pod := generatePod("128.0.1.7", "pod1", "nsA", "", "node1", map[string]string{"app": "test-app"},
@@ -885,7 +887,7 @@ func TestWorkloadHealthCheckInfoPrometheusPath(t *testing.T) {
 }
 
 func TestWorkloadHealthCheckInfoPrometheusPort(t *testing.T) {
-	controller, _ := newFakeController(t)
+	controller, _ := newFakeController()
 	defer controller.Stop()
 
 	pod := generatePod("128.0.1.8", "pod1", "nsA", "", "node1", map[string]string{"app": "test-app"},
@@ -913,7 +915,7 @@ func TestWorkloadHealthCheckInfoPrometheusPort(t *testing.T) {
 }
 
 func TestManagementPorts(t *testing.T) {
-	controller, _ := newFakeController(t)
+	controller, _ := newFakeController()
 
 	pod := generatePodWithProbes("128.0.0.1", "pod1", "nsA", "", "node1", "/ready", intstr.Parse("8080"), "/live", intstr.Parse("9090"))
 	addPods(t, controller, pod)
@@ -947,7 +949,7 @@ func TestManagementPorts(t *testing.T) {
 }
 
 func TestController_Service(t *testing.T) {
-	controller, fx := newFakeController(t)
+	controller, fx := newFakeController()
 	// Use a timeout to keep the test from hanging.
 
 	createService(controller, "svc1", "nsA",
@@ -1032,7 +1034,14 @@ func TestController_Service(t *testing.T) {
 }
 
 func TestController_ExternalNameService(t *testing.T) {
-	controller, fx := newFakeController(t)
+	wg := sync.WaitGroup{}
+	controller, fx := newFakeControllerWithHandler(model.FuncServiceDiscoveryHandler{
+		Services: func(_ string, _ *model.Service, e model.Event) {
+			if e == model.EventDelete {
+				wg.Done()
+			}
+		}})
+
 	// Use a timeout to keep the test from hanging.
 
 	k8sSvcs := []*coreV1.Service{
@@ -1045,6 +1054,8 @@ func TestController_ExternalNameService(t *testing.T) {
 		createExternalNameService(controller, "svc4", "nsA",
 			[]int32{8083}, "g.co", t, fx.Events),
 	}
+
+	wg.Add(len(k8sSvcs))
 
 	expectedSvcList := []*model.Service{
 		{
@@ -1127,16 +1138,6 @@ func TestController_ExternalNameService(t *testing.T) {
 		}
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(len(k8sSvcs))
-	deleteHandler := func(_ *model.Service, e model.Event) {
-		if e == model.EventDelete {
-			wg.Done()
-		}
-	}
-	if err := controller.AppendServiceHandler(deleteHandler); err != nil {
-		t.Fatalf("Failed to append service handler: %+v", err)
-	}
 	for _, s := range k8sSvcs {
 		deleteExternalNameService(controller, s.Name, s.Namespace, t, fx.Events)
 	}
@@ -1501,7 +1502,7 @@ func addNodes(t *testing.T, controller *Controller, nodes ...*coreV1.Node) {
 }
 
 func TestEndpointUpdate(t *testing.T) {
-	controller, fx := newFakeController(t)
+	controller, fx := newFakeController()
 	defer controller.Stop()
 
 	pod1 := generatePod("128.0.0.1", "pod1", "nsA", "", "node1", map[string]string{"app": "prod-app"}, map[string]string{})
@@ -1561,7 +1562,7 @@ func TestEndpointUpdate(t *testing.T) {
 // Validates that when Pilot sees Endpoint before the corresponding Pod, it loads Pod from K8S and proceed.
 func TestEndpointUpdateBeforePodUpdate(t *testing.T) {
 	// Setup kube caches
-	controller, fx := newFakeController(t)
+	controller, fx := newFakeController()
 	defer controller.Stop()
 	pod1 := generatePod("172.0.1.1", "pod1", "nsA", "", "node1", map[string]string{"app": "prod-app"}, map[string]string{})
 	pod2 := generatePod("172.0.1.2", "pod2", "nsA", "", "node2", map[string]string{"app": "prod-app"}, map[string]string{})

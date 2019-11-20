@@ -19,51 +19,32 @@ import (
 
 	"github.com/hashicorp/consul/api"
 
-	"istio.io/istio/pilot/pkg/model"
 	"istio.io/pkg/log"
 )
 
 // Monitor handles service and instance changes
 type Monitor interface {
 	Start(<-chan struct{})
-	AppendServiceHandler(ServiceHandler)
-	AppendInstanceHandler(InstanceHandler)
 }
 
-// InstanceHandler processes service instance change events
-type InstanceHandler func(instance *api.CatalogService, event model.Event) error
-
-// ServiceHandler processes service change events
-type ServiceHandler func(instances []*api.CatalogService, event model.Event) error
-
 type consulMonitor struct {
-	discovery        *api.Client
-	instanceHandlers []InstanceHandler
-	serviceHandlers  []ServiceHandler
+	discovery *api.Client
+	handler   func()
 }
 
 const (
-	refreshIdleTime    time.Duration = 5 * time.Second
-	periodicCheckTime  time.Duration = 2 * time.Second
-	blockQueryWaitTime time.Duration = 10 * time.Minute
+	refreshIdleTime    = 5 * time.Second
+	periodicCheckTime  = 2 * time.Second
+	blockQueryWaitTime = 10 * time.Minute
 )
-
-// NewConsulMonitor watches for changes in Consul services and CatalogServices
-func NewConsulMonitor(client *api.Client) Monitor {
-	return &consulMonitor{
-		discovery:        client,
-		instanceHandlers: make([]InstanceHandler, 0),
-		serviceHandlers:  make([]ServiceHandler, 0),
-	}
-}
 
 func (m *consulMonitor) Start(stop <-chan struct{}) {
 	change := make(chan struct{})
-	go m.watchConsul(change, stop)
+	go m.watch(change, stop)
 	go m.updateRecord(change, stop)
 }
 
-func (m *consulMonitor) watchConsul(change chan struct{}, stop <-chan struct{}) {
+func (m *consulMonitor) watch(change chan struct{}, stop <-chan struct{}) {
 	var consulWaitIndex uint64
 
 	for {
@@ -100,8 +81,7 @@ func (m *consulMonitor) updateRecord(change <-chan struct{}, stop <-chan struct{
 			currentTime := time.Now().Unix()
 			if lastChange > 0 && currentTime-lastChange > int64(refreshIdleTime.Seconds()) {
 				log.Infof("Consul service changed")
-				m.updateServiceRecord()
-				m.updateInstanceRecord()
+				go m.handler()
 				lastChange = int64(0)
 			}
 		case <-stop:
@@ -109,46 +89,4 @@ func (m *consulMonitor) updateRecord(change <-chan struct{}, stop <-chan struct{
 			return
 		}
 	}
-}
-
-func (m *consulMonitor) updateServiceRecord() {
-	// This is only a work-around solution currently
-	// Since Handler functions generally act as a refresher
-	// regardless of the input, thus passing in meaningless
-	// input should make functionalities work
-	//TODO
-	var obj []*api.CatalogService
-	var event model.Event
-	for _, f := range m.serviceHandlers {
-		go func(handler ServiceHandler) {
-			if err := handler(obj, event); err != nil {
-				log.Warnf("Error executing service handler function: %v", err)
-			}
-		}(f)
-	}
-}
-
-func (m *consulMonitor) updateInstanceRecord() {
-	// This is only a work-around solution currently
-	// Since Handler functions generally act as a refresher
-	// regardless of the input, thus passing in meaningless
-	// input should make functionalities work
-	// TODO
-	obj := &api.CatalogService{}
-	var event model.Event
-	for _, f := range m.instanceHandlers {
-		go func(handler InstanceHandler) {
-			if err := handler(obj, event); err != nil {
-				log.Warnf("Error executing instance handler function: %v", err)
-			}
-		}(f)
-	}
-}
-
-func (m *consulMonitor) AppendServiceHandler(h ServiceHandler) {
-	m.serviceHandlers = append(m.serviceHandlers, h)
-}
-
-func (m *consulMonitor) AppendInstanceHandler(h InstanceHandler) {
-	m.instanceHandlers = append(m.instanceHandlers, h)
 }

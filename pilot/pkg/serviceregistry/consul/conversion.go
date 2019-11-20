@@ -109,35 +109,35 @@ func convertService(endpoints []*api.CatalogService) *model.Service {
 	return out
 }
 
-func convertInstance(instance *api.CatalogService) *model.ServiceInstance {
-	svcLabels := convertLabels(instance.ServiceTags)
-	port := convertPort(instance.ServicePort, instance.ServiceMeta[protocolTagName])
+func convertInstance(endpoints *api.CatalogService) *model.ServiceInstance {
+	svcLabels := convertLabels(endpoints.ServiceTags)
+	port := convertPort(endpoints.ServicePort, endpoints.ServiceMeta[protocolTagName])
 
-	addr := instance.ServiceAddress
+	addr := endpoints.ServiceAddress
 	if addr == "" {
-		addr = instance.Address
+		addr = endpoints.Address
 	}
 
 	meshExternal := false
 	resolution := model.ClientSideLB
-	externalName := instance.ServiceMeta[externalTagName]
+	externalName := endpoints.ServiceMeta[externalTagName]
 	if externalName != "" {
 		meshExternal = true
 		resolution = model.DNSLB
 	}
 
 	tlsMode := model.GetTLSModeFromEndpointLabels(svcLabels)
-	hostname := serviceHostname(instance.ServiceName)
+	hostname := serviceHostname(endpoints.ServiceName)
 	return &model.ServiceInstance{
 		Endpoint: model.NetworkEndpoint{
 			Address:     addr,
-			Port:        instance.ServicePort,
+			Port:        endpoints.ServicePort,
 			ServicePort: port,
-			Locality:    instance.Datacenter,
+			Locality:    endpoints.Datacenter,
 		},
 		Service: &model.Service{
 			Hostname:     hostname,
-			Address:      instance.ServiceAddress,
+			Address:      endpoints.ServiceAddress,
 			Ports:        model.PortList{port},
 			MeshExternal: meshExternal,
 			Resolution:   resolution,

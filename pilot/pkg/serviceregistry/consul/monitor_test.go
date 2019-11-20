@@ -19,8 +19,6 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul/api"
-
-	"istio.io/istio/pilot/pkg/model"
 )
 
 const notifyThreshold = 10 * time.Second
@@ -33,21 +31,17 @@ func TestController(t *testing.T) {
 
 	cl, err := api.NewClient(conf)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	updateChannel := make(chan struct{}, 10)
 
-	ctl := NewConsulMonitor(cl)
-	ctl.AppendInstanceHandler(func(instance *api.CatalogService, event model.Event) error {
-		updateChannel <- struct{}{}
-		return nil
-	})
-
-	ctl.AppendServiceHandler(func(instances []*api.CatalogService, event model.Event) error {
-		updateChannel <- struct{}{}
-		return nil
-	})
+	ctl := &consulMonitor{
+		discovery: cl,
+		handler: func() {
+			updateChannel <- struct{}{}
+		},
+	}
 
 	stop := make(chan struct{})
 	go ctl.Start(stop)
@@ -66,7 +60,7 @@ func TestController(t *testing.T) {
 	}
 
 	//The first query from monitor to Consul always doesn't block because the index is 0
-	expectNotify(t, 2)
+	expectNotify(t, 1)
 
 	//There won't be any notifications if X-Consul-Index doesn't change
 	expectNotify(t, 0)
@@ -75,5 +69,5 @@ func TestController(t *testing.T) {
 	ts.lock.Lock()
 	ts.consulIndex++
 	ts.lock.Unlock()
-	expectNotify(t, 2)
+	expectNotify(t, 1)
 }

@@ -25,6 +25,7 @@ import (
 	"istio.io/istio/pilot/pkg/config/memory"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/serviceregistry/external"
+	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/schema"
 	"istio.io/istio/pkg/config/schemas"
 	"istio.io/istio/pkg/test/util/retry"
@@ -39,19 +40,18 @@ func TestController(t *testing.T) {
 
 	count := int64(0)
 
-	ctl := external.NewServiceDiscovery(configController, model.MakeIstioStore(configController))
-	err := ctl.AppendInstanceHandler(func(instance *model.ServiceInstance, event model.Event) { atomic.AddInt64(&count, 1) })
-	if err != nil {
-		t.Fatalf("AppendInstanceHandler() => %q", err)
-	}
-
-	err = ctl.AppendServiceHandler(func(service *model.Service, event model.Event) { atomic.AddInt64(&count, 1) })
-	if err != nil {
-		t.Fatalf("AppendServiceHandler() => %q", err)
-	}
+	ctl := external.NewServiceDiscovery(model.FuncServiceDiscoveryHandler{
+		Services:  func(string, *model.Service, model.Event) {
+			atomic.AddInt64(&count, 1)
+		},
+		Endpoints: func(string, string, host.Name, *model.Service, []*model.IstioEndpoint, model.Event) {
+			atomic.AddInt64(&count, 1)
+		},
+	}, configController, model.MakeIstioStore(configController))
 
 	stop := make(chan struct{})
 	go configController.Run(stop)
+	go ctl.Run(stop)
 	defer close(stop)
 
 	cfg := model.Config{
@@ -88,7 +88,7 @@ func TestController(t *testing.T) {
 	}
 	expectedCount := int64(1) // 1 service - We do not call instance handlers any more.
 
-	_, err = configController.Create(cfg)
+	_, err := configController.Create(cfg)
 	if err != nil {
 		t.Fatalf("error occurred crearting ServiceEntry config: %v", err)
 	}

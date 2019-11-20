@@ -159,6 +159,10 @@ type XDSUpdater interface {
 
 	// ProxyUpdate is called to notify the XDS server to send a push to the specified proxy.
 	// The requests may be collapsed and throttled.
+	//
+	// This can useful in cases where a node connects before Pilot has received the pod information
+	// (e.g. labels) for that node. The handler for this event can force a full push to the node
+	// in order to update the labels from the pod.
 	ProxyUpdate(clusterID, ip string)
 }
 

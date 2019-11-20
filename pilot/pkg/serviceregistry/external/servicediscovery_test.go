@@ -50,7 +50,7 @@ func initServiceDiscovery() (model.IstioConfigStore, *ServiceEntryStore, func())
 	go configController.Run(stop)
 
 	istioStore := model.MakeIstioStore(configController)
-	serviceController := NewServiceDiscovery(configController, istioStore)
+	serviceController := NewServiceDiscovery(model.EmptyServiceDiscoveryHandler(), configController, istioStore)
 	return istioStore, serviceController, func() {
 		stop <- channelTerminal{}
 	}

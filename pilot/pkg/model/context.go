@@ -26,11 +26,14 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
 	"github.com/golang/protobuf/jsonpb"
 	structpb "github.com/golang/protobuf/ptypes/struct"
+	"istio.io/pkg/monitoring"
 
 	meshconfig "istio.io/api/mesh/v1alpha1"
 
 	"istio.io/istio/pkg/config/labels"
 )
+
+var _ ProxyMetrics = &Environment{}
 
 // Environment provides an aggregate environmental API for Pilot
 type Environment struct {
@@ -57,6 +60,15 @@ type Environment struct {
 	// routable L3 network. A single routable L3 network can have one or more
 	// service registries.
 	MeshNetworks *meshconfig.MeshNetworks
+}
+
+func (e *Environment) AddProxyMetric(metric monitoring.Metric, key string, proxy *Proxy, msg string) {
+	// TODO(nmittler): This is currently only called by the k8s service controller.
+	//  Should it be using the global context?
+	if e.PushContext != nil {
+		e.PushContext.Add(metric, key, proxy, msg)
+	}
+	// TODO(nmittler): Should we log if it's nil? When will it be nil?
 }
 
 // Proxy contains information about an specific instance of a proxy (envoy sidecar, gateway,

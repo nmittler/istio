@@ -155,9 +155,9 @@ func newServer() *mockServer {
 func TestInstances(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 	hostname := serviceHostname("reviews")
 	svc := &model.Service{
@@ -170,14 +170,14 @@ func TestInstances(t *testing.T) {
 
 	instances, err := controller.InstancesByPort(svc, 0, labels.Collection{})
 	if err != nil {
-		t.Errorf("client encountered error during Instances(): %v", err)
+		t.Fatalf("client encountered error during Instances(): %v", err)
 	}
 	if len(instances) != 3 {
-		t.Errorf("Instances() returned wrong # of service instances => %q, want 3", len(instances))
+		t.Fatalf("Instances() returned wrong # of service instances => %q, want 3", len(instances))
 	}
 	for _, inst := range instances {
 		if inst.Service.Hostname != hostname {
-			t.Errorf("Instances() returned wrong service instance => %v, want %q",
+			t.Fatalf("Instances() returned wrong service instance => %v, want %q",
 				inst.Service.Hostname, hostname)
 		}
 	}
@@ -188,10 +188,10 @@ func TestInstances(t *testing.T) {
 		labels.Instance{filterTagKey: filterTagVal},
 	})
 	if err != nil {
-		t.Errorf("client encountered error during Instances(): %v", err)
+		t.Fatalf("client encountered error during Instances(): %v", err)
 	}
 	if len(instances) != 1 {
-		t.Errorf("Instances() did not filter by tags => %q, want 1", len(instances))
+		t.Fatalf("Instances() did not filter by tags => %q, want 1", len(instances))
 	}
 	for _, inst := range instances {
 		found := false
@@ -201,22 +201,22 @@ func TestInstances(t *testing.T) {
 			}
 		}
 		if !found {
-			t.Errorf("Instances() did not match by tag {%q:%q}", filterTagKey, filterTagVal)
+			t.Fatalf("Instances() did not match by tag {%q:%q}", filterTagKey, filterTagVal)
 		}
 	}
 
 	filterPort := 9081
 	instances, err = controller.InstancesByPort(svc, filterPort, labels.Collection{})
 	if err != nil {
-		t.Errorf("client encountered error during Instances(): %v", err)
+		t.Fatalf("client encountered error during Instances(): %v", err)
 	}
 	if len(instances) != 2 {
 		fmt.Println(instances)
-		t.Errorf("Instances() did not filter by port => %q, want 2", len(instances))
+		t.Fatalf("Instances() did not filter by port => %q, want 2", len(instances))
 	}
 	for _, inst := range instances {
 		if inst.Endpoint.ServicePort.Port != filterPort {
-			t.Errorf("Instances() did not filter by port => %q, want %q",
+			t.Fatalf("Instances() did not filter by port => %q, want %q",
 				inst.Endpoint.ServicePort.Name, filterPort)
 		}
 	}
@@ -225,9 +225,9 @@ func TestInstances(t *testing.T) {
 func TestInstancesBadHostname(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 	svc := &model.Service{
 		Hostname: "",
@@ -238,19 +238,19 @@ func TestInstancesBadHostname(t *testing.T) {
 	}
 	instances, err := controller.InstancesByPort(svc, 0, labels.Collection{})
 	if err == nil {
-		t.Error("Instances() should return error when provided bad hostname")
+		t.Fatal("Instances() should return error when provided bad hostname")
 	}
 	if len(instances) != 0 {
-		t.Errorf("Instances() returned wrong # of service instances => %q, want 0", len(instances))
+		t.Fatalf("Instances() returned wrong # of service instances => %q, want 0", len(instances))
 	}
 }
 
 func TestInstancesError(t *testing.T) {
 	ts := newServer()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
 		ts.server.Close()
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 	hostname := serviceHostname("reviews")
 	svc := &model.Service{
@@ -263,194 +263,194 @@ func TestInstancesError(t *testing.T) {
 	ts.server.Close()
 	instances, err := controller.InstancesByPort(svc, 0, labels.Collection{})
 	if err == nil {
-		t.Error("Instances() should return error when client experiences connection problem")
+		t.Fatal("Instances() should return error when client experiences connection problem")
 	}
 	if len(instances) != 0 {
-		t.Errorf("Instances() returned wrong # of instances: %q, want 0", len(instances))
+		t.Fatalf("Instances() returned wrong # of instances: %q, want 0", len(instances))
 	}
 }
 
 func TestGetService(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	service, err := controller.GetService("productpage.service.consul")
 	if err != nil {
-		t.Errorf("client encountered error during GetService(): %v", err)
+		t.Fatalf("client encountered error during GetService(): %v", err)
 	}
 	if service == nil {
-		t.Error("service should exist")
+		t.Fatalf("service should exist")
 	}
 
 	if service.Hostname != serviceHostname("productpage") {
-		t.Errorf("GetService() incorrect service returned => %q, want %q",
+		t.Fatalf("GetService() incorrect service returned => %q, want %q",
 			service.Hostname, serviceHostname("productpage"))
 	}
 }
 
 func TestGetServiceError(t *testing.T) {
 	ts := newServer()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
 		ts.server.Close()
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	ts.server.Close()
 	service, err := controller.GetService("productpage.service.consul")
 	if err == nil {
-		t.Error("GetService() should return error when client experiences connection problem")
+		t.Fatal("GetService() should return error when client experiences connection problem")
 	}
 	if service != nil {
-		t.Error("GetService() should return nil when client experiences connection problem")
+		t.Fatal("GetService() should return nil when client experiences connection problem")
 	}
 }
 
 func TestGetServiceBadHostname(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	service, err := controller.GetService("")
 	if err == nil {
-		t.Error("GetService() should thow error for bad hostnames")
+		t.Fatal("GetService() should thow error for bad hostnames")
 	}
 	if service != nil {
-		t.Error("service should not exist")
+		t.Fatal("service should not exist")
 	}
 }
 
 func TestGetServiceNoInstances(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	service, err := controller.GetService("details.service.consul")
 	if err != nil {
-		t.Errorf("GetService() encountered unexpected error: %v", err)
+		t.Fatalf("GetService() encountered unexpected error: %v", err)
 	}
 	if service != nil {
-		t.Error("service should not exist")
+		t.Fatal("service should not exist")
 	}
 }
 
 func TestServices(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	services, err := controller.Services()
 	if err != nil {
-		t.Errorf("client encountered error during services(): %v", err)
+		t.Fatalf("client encountered error during services(): %v", err)
 	}
 	serviceMap := make(map[string]*model.Service)
 	for _, svc := range services {
 		name, err := parseHostname(svc.Hostname)
 		if err != nil {
-			t.Errorf("services() error parsing hostname: %v", err)
+			t.Fatalf("services() error parsing hostname: %v", err)
 		}
 		serviceMap[name] = svc
 	}
 
 	for _, name := range []string{"productpage", "reviews", "rating"} {
 		if _, exists := serviceMap[name]; !exists {
-			t.Errorf("services() missing: %q", name)
+			t.Fatalf("services() missing: %q", name)
 		}
 	}
 	if len(services) != 3 {
-		t.Errorf("services() returned wrong # of services: %q, want 3", len(services))
+		t.Fatalf("services() returned wrong # of services: %q, want 3", len(services))
 	}
 }
 
 func TestServicesError(t *testing.T) {
 	ts := newServer()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
 		ts.server.Close()
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	ts.server.Close()
 	services, err := controller.Services()
 	if err == nil {
-		t.Error("services() should return error when client experiences connection problem")
+		t.Fatal("services() should return error when client experiences connection problem")
 	}
 	if len(services) != 0 {
-		t.Errorf("services() returned wrong # of services: %q, want 0", len(services))
+		t.Fatalf("services() returned wrong # of services: %q, want 0", len(services))
 	}
 }
 
 func TestGetProxyServiceInstances(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	services, err := controller.GetProxyServiceInstances(&model.Proxy{IPAddresses: []string{"172.19.0.11"}})
 	if err != nil {
-		t.Errorf("client encountered error during GetProxyServiceInstances(): %v", err)
+		t.Fatalf("client encountered error during GetProxyServiceInstances(): %v", err)
 	}
 	if len(services) != 1 {
-		t.Errorf("GetProxyServiceInstances() returned wrong # of endpoints => %q, want 1", len(services))
+		t.Fatalf("GetProxyServiceInstances() returned wrong # of endpoints => %q, want 1", len(services))
 	}
 
 	if services[0].Service.Hostname != serviceHostname("productpage") {
-		t.Errorf("GetProxyServiceInstances() wrong service instance returned => hostname %q, want %q",
+		t.Fatalf("GetProxyServiceInstances() wrong service instance returned => hostname %q, want %q",
 			services[0].Service.Hostname, serviceHostname("productpage"))
 	}
 }
 
 func TestGetProxyServiceInstancesError(t *testing.T) {
 	ts := newServer()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
 		ts.server.Close()
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	ts.server.Close()
 	instances, err := controller.GetProxyServiceInstances(&model.Proxy{IPAddresses: []string{"172.19.0.11"}})
 	if err == nil {
-		t.Error("GetProxyServiceInstances() should return error when client experiences connection problem")
+		t.Fatal("GetProxyServiceInstances() should return error when client experiences connection problem")
 	}
 	if len(instances) != 0 {
-		t.Errorf("GetProxyServiceInstances() returned wrong # of instances: %q, want 0", len(instances))
+		t.Fatalf("GetProxyServiceInstances() returned wrong # of instances: %q, want 0", len(instances))
 	}
 }
 
 func TestGetProxyServiceInstancesWithMultiIPs(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	services, err := controller.GetProxyServiceInstances(&model.Proxy{IPAddresses: []string{"10.78.11.18", "172.19.0.12"}})
 	if err != nil {
-		t.Errorf("client encountered error during GetProxyServiceInstances(): %v", err)
+		t.Fatalf("client encountered error during GetProxyServiceInstances(): %v", err)
 	}
 	if len(services) != 1 {
-		t.Errorf("GetProxyServiceInstances() returned wrong # of endpoints => %q, want 1", len(services))
+		t.Fatalf("GetProxyServiceInstances() returned wrong # of endpoints => %q, want 1", len(services))
 	}
 
 	if services[0].Service.Hostname != serviceHostname("rating") {
-		t.Errorf("GetProxyServiceInstances() wrong service instance returned => hostname %q, want %q",
+		t.Fatalf("GetProxyServiceInstances() wrong service instance returned => hostname %q, want %q",
 			services[0].Service.Hostname, serviceHostname("productpage"))
 	}
 }
@@ -458,9 +458,9 @@ func TestGetProxyServiceInstancesWithMultiIPs(t *testing.T) {
 func TestGetProxyWorkloadLabels(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 
 	tests := []struct {
@@ -502,14 +502,14 @@ func TestGetProxyWorkloadLabels(t *testing.T) {
 				return wlLabels[i].String() < wlLabels[j].String()
 			})
 			if err != nil {
-				t.Errorf("client encountered error during GetProxyWorkloadLabels(): %v", err)
+				t.Fatalf("client encountered error during GetProxyWorkloadLabels(): %v", err)
 			}
 			if wlLabels == nil {
-				t.Error("labels should exist")
+				t.Fatal("labels should exist")
 			}
 
 			if !reflect.DeepEqual(wlLabels, test.expected) {
-				t.Errorf("GetProxyWorkloadLabels() wrong labels => returned %#v, want %#v", wlLabels, test.expected)
+				t.Fatalf("GetProxyWorkloadLabels() wrong labels => returned %#v, want %#v", wlLabels, test.expected)
 			}
 		})
 	}
@@ -517,22 +517,22 @@ func TestGetProxyWorkloadLabels(t *testing.T) {
 
 func TestGetServiceByCache(t *testing.T) {
 	ts := newServer()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 	_, _ = controller.GetService("productpage.service.consul")
 	ts.server.Close()
 	service, err := controller.GetService("productpage.service.consul")
 	if err != nil {
-		t.Errorf("client encountered error during GetService(): %v", err)
+		t.Fatalf("client encountered error during GetService(): %v", err)
 	}
 	if service == nil {
-		t.Error("service should exist")
+		t.Fatal("service should exist")
 	}
 
 	if service.Hostname != serviceHostname("productpage") {
-		t.Errorf("GetService() incorrect service returned => %q, want %q",
+		t.Fatalf("GetService() incorrect service returned => %q, want %q",
 			service.Hostname, serviceHostname("productpage"))
 	}
 }
@@ -540,9 +540,9 @@ func TestGetServiceByCache(t *testing.T) {
 func TestGetInstanceByCacheAfterChanged(t *testing.T) {
 	ts := newServer()
 	defer ts.server.Close()
-	controller, err := NewController(ts.server.URL)
+	controller, err := NewController(model.EmptyServiceDiscoveryHandler(), ts.server.URL)
 	if err != nil {
-		t.Errorf("could not create Consul Controller: %v", err)
+		t.Fatalf("could not create Consul Controller: %v", err)
 	}
 	go controller.Run(make(chan struct{}))
 
@@ -556,14 +556,14 @@ func TestGetInstanceByCacheAfterChanged(t *testing.T) {
 	}
 	instances, err := controller.InstancesByPort(svc, 0, labels.Collection{})
 	if err != nil {
-		t.Errorf("client encountered error during Instances(): %v", err)
+		t.Fatalf("client encountered error during Instances(): %v", err)
 	}
 	if len(instances) != 3 {
-		t.Errorf("Instances() returned wrong # of service instances => %q, want 3", len(instances))
+		t.Fatalf("Instances() returned wrong # of service instances => %q, want 3", len(instances))
 	}
 	for _, inst := range instances {
 		if inst.Service.Hostname != hostname {
-			t.Errorf("Instances() returned wrong service instance => %v, want %q",
+			t.Fatalf("Instances() returned wrong service instance => %v, want %q",
 				inst.Service.Hostname, hostname)
 		}
 	}
@@ -587,14 +587,14 @@ func TestGetInstanceByCacheAfterChanged(t *testing.T) {
 	time.Sleep(notifyThreshold)
 	instances, err = controller.InstancesByPort(svc, 0, labels.Collection{})
 	if err != nil {
-		t.Errorf("client encountered error during Instances(): %v", err)
+		t.Fatalf("client encountered error during Instances(): %v", err)
 	}
 	if len(instances) != 1 {
-		t.Errorf("Instances() returned wrong # of service instances => %q, want 1", len(instances))
+		t.Fatalf("Instances() returned wrong # of service instances => %q, want 1", len(instances))
 	}
 	for _, inst := range instances {
 		if inst.Service.Hostname != hostname {
-			t.Errorf("Instances() returned wrong service instance => %v, want %q",
+			t.Fatalf("Instances() returned wrong service instance => %v, want %q",
 				inst.Service.Hostname, hostname)
 		}
 	}

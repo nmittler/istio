@@ -36,6 +36,7 @@ import (
 
 	authn "istio.io/api/authentication/v1alpha1"
 
+	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/labels"
 	"istio.io/istio/pkg/config/protocol"
@@ -478,6 +479,76 @@ type ServiceDiscovery interface {
 	GetIstioServiceAccounts(svc *Service, ports []int) []string
 }
 
+// Event represents a service discovery update event
+type Event int
+
+const (
+	// EventAdd is sent when an object is added
+	EventAdd Event = iota
+
+	// EventUpdate is sent when an object is modified
+	// Captures the modified object
+	EventUpdate
+
+	// EventDelete is sent when an object is deleted
+	// Captures the object at the last known state
+	EventDelete
+)
+
+func (event Event) String() string {
+	out := "unknown"
+	switch event {
+	case EventAdd:
+		out = "add"
+	case EventUpdate:
+		out = "update"
+	case EventDelete:
+		out = "delete"
+	}
+	return out
+}
+
+// ServiceDiscoveryHandler is a handler for service discovery events
+type ServiceDiscoveryHandler interface {
+	// OnServiceEvent handles service events.
+	OnServiceEvent(clusterID string, service *Service, event Event)
+	OnEndpointsEvent(clusterID string, namespace string, hostname host.Name, service *Service,
+		endpoints []*IstioEndpoint, event Event)
+
+	// OnAvailable indicates that a workload instance (e.g. Pod on Kubernetes) has become available.
+	// This can useful in cases where a node connects before Pilot has received the pod information
+	// (e.g. labels) for that node. The handler for this event can force a full push to the node
+	// in order to update the labels from the pod.
+	// TODO(nmittler): This is a bit hacky - we should investigate alternative solutions.
+	OnAvailable(clusterID string, ip string)
+}
+
+var _ ServiceDiscoveryHandler = FuncServiceDiscoveryHandler{}
+
+// FuncServiceDiscoveryHandler is a ServiceDiscoveryHandler that delegates to the given functions.
+type FuncServiceDiscoveryHandler struct {
+	Services  func(string, *Service, Event)
+	Endpoints func(string, string, host.Name, *Service, []*IstioEndpoint, Event)
+}
+
+func (h FuncServiceDiscoveryHandler) OnServiceEvent(clusterID string, service *Service, event Event) {
+	if h.Services != nil {
+		h.Services(clusterID, service, event)
+	}
+}
+
+func (h FuncServiceDiscoveryHandler) OnEndpointsEvent(clusterID string, namespace string,
+	hostname host.Name, service *Service, endpoints []*IstioEndpoint, event Event) {
+	if h.Endpoints != nil {
+		h.Endpoints(clusterID, namespace, hostname, service, endpoints, event)
+	}
+}
+
+// EmptyServiceDiscoveryHandler is a utility that returns a NOOP ServiceDiscoveryHandler
+func EmptyServiceDiscoveryHandler() ServiceDiscoveryHandler {
+	return FuncServiceDiscoveryHandler{}
+}
+
 // Match returns true if port matches with authentication port selector criteria.
 func (port Port) Match(portSelector *authn.PortSelector) bool {
 	if portSelector == nil {
@@ -534,6 +605,11 @@ func (s *Service) External() bool {
 func (s *Service) Key(port *Port, l labels.Instance) string {
 	// TODO: check port is non nil and membership of port in service
 	return ServiceKey(s.Hostname, PortList{port}, labels.Collection{l})
+}
+
+// IsHeadless indicates if this is a headless service (i.e. uses an unspecified IP).
+func (s *Service) IsHeadless() bool {
+	return s.Address == constants.UnspecifiedIP
 }
 
 // ServiceKey generates a service key for a collection of ports and labels

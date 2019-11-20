@@ -28,43 +28,15 @@ package model
 // Handlers execute on the single worker queue in the order they are appended.
 // Handlers receive the notification event and the associated object.  Note
 // that all handlers must be appended before starting the controller.
+// TODO(nmittler): Remove this interface, it's no longer needed.
 type Controller interface {
 	// AppendServiceHandler notifies about changes to the service catalog.
-	AppendServiceHandler(f func(*Service, Event)) error
+	//AppendServiceHandler(f func(*Service, Event)) error
 
 	// AppendInstanceHandler notifies about changes to the service instances
 	// for a service.
-	AppendInstanceHandler(f func(*ServiceInstance, Event)) error
+	//AppendInstanceHandler(f func(*ServiceInstance, Event)) error
 
 	// Run until a signal is received
 	Run(stop <-chan struct{})
-}
-
-// Event represents a registry update event
-type Event int
-
-const (
-	// EventAdd is sent when an object is added
-	EventAdd Event = iota
-
-	// EventUpdate is sent when an object is modified
-	// Captures the modified object
-	EventUpdate
-
-	// EventDelete is sent when an object is deleted
-	// Captures the object at the last known state
-	EventDelete
-)
-
-func (event Event) String() string {
-	out := "unknown"
-	switch event {
-	case EventAdd:
-		out = "add"
-	case EventUpdate:
-		out = "update"
-	case EventDelete:
-		out = "delete"
-	}
-	return out
 }
