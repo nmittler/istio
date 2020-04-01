@@ -12,40 +12,39 @@
 //  See the License for the specific language governing permissions and
 //  limitations under the License.
 
-package multicluster
+package replicated
 
 import (
 	"testing"
 
 	"istio.io/istio/pkg/test/framework"
-	"istio.io/istio/pkg/test/framework/components/galley"
 	"istio.io/istio/pkg/test/framework/components/istio"
 	"istio.io/istio/pkg/test/framework/components/pilot"
 	"istio.io/istio/pkg/test/framework/label"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/framework/resource/environment"
+	"istio.io/istio/tests/integration/multicluster"
 )
 
 var (
 	ist istio.Instance
-	g   galley.Instance
 	p   pilot.Instance
 )
+
+func TestReachability(t *testing.T) {
+	multicluster.DoReachability(t, p)
+}
 
 func TestMain(m *testing.M) {
 	framework.
 		NewSuite("multicluster", m).
 		Label(label.Multicluster).
+		Label(label.ReplicatedControlPlane).
 		RequireEnvironment(environment.Kube).
 		RequireMinClusters(2).
 		SetupOnEnv(environment.Kube, istio.Setup(&ist, nil)).
 		Setup(func(ctx resource.Context) (err error) {
-			if g, err = galley.New(ctx, galley.Config{}); err != nil {
-				return err
-			}
-			if p, err = pilot.New(ctx, pilot.Config{
-				Galley: g,
-			}); err != nil {
+			if p, err = pilot.New(ctx, pilot.Config{}); err != nil {
 				return err
 			}
 			return nil

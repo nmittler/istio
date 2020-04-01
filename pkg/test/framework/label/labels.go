@@ -28,13 +28,18 @@ const (
 
 	// Multicluster indicates that the test requires a multicluster configuration.
 	Multicluster Instance = "multicluster"
+
+	ReplicatedControlPlane Instance = "replicatedcontrolplane"
+	SharedControlPlane Instance = "sharedcontrolplane"
 )
 
 var all = NewSet(
 	Postsubmit,
 	CustomSetup,
 	Flaky,
-	Multicluster)
+	Multicluster,
+	ReplicatedControlPlane,
+	SharedControlPlane)
 
 // Find the label with the given name
 func Find(name string) (Instance, bool) {
@@ -43,5 +48,5 @@ func Find(name string) (Instance, bool) {
 		return candidate, true
 	}
 
-	return Instance(""), false
+	return "", false
 }

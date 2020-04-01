@@ -25,6 +25,7 @@ import (
 	"istio.io/istio/pkg/test/framework/components/echo"
 	"istio.io/istio/pkg/test/framework/components/echo/echoboot"
 	"istio.io/istio/pkg/test/framework/components/namespace"
+	"istio.io/istio/pkg/test/framework/components/pilot"
 	"istio.io/istio/pkg/test/framework/label"
 	"istio.io/istio/pkg/test/framework/resource"
 	"istio.io/istio/pkg/test/util/retry"
@@ -35,21 +36,21 @@ var (
 	retryDelay   = time.Millisecond * 100
 )
 
-// TestMulticlusterReachability tests that services in 2 different clusters can talk to each other.
-func TestMulticlusterReachability(t *testing.T) {
+// DoReachability tests that services in 2 different clusters can talk to each other.
+func DoReachability(t *testing.T, p pilot.Instance) {
 	framework.NewTest(t).
 		Label(label.Multicluster).
 		Run(func(ctx framework.TestContext) {
 			ns := namespace.NewOrFail(ctx, ctx, namespace.Config{
-				Prefix: "mc-reachability",
+				Prefix: "reachability",
 				Inject: true,
 			})
 
 			// Deploy a and b in different clusters.
 			var a, b echo.Instance
 			echoboot.NewBuilderOrFail(ctx, ctx).
-				With(&a, newEchoConfig("a", ns, ctx.Environment().Clusters()[0])).
-				With(&b, newEchoConfig("b", ns, ctx.Environment().Clusters()[1])).
+				With(&a, newEchoConfig("a", ns, ctx.Environment().Clusters()[0], p)).
+				With(&b, newEchoConfig("b", ns, ctx.Environment().Clusters()[1], p)).
 				BuildOrFail(ctx)
 
 			// Now verify that they can talk to each other.
@@ -89,9 +90,8 @@ func TestMulticlusterReachability(t *testing.T) {
 		})
 }
 
-func newEchoConfig(service string, ns namespace.Instance, cluster resource.Cluster) echo.Config {
+func newEchoConfig(service string, ns namespace.Instance, cluster resource.Cluster, p pilot.Instance) echo.Config {
 	return echo.Config{
-		Galley:         g,
 		Pilot:          p,
 		Service:        service,
 		Namespace:      ns,
