@@ -1,0 +1,78 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: Gateway
+metadata:
+  name: istiod-gateway
+  namespace: istio-system
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 443
+        name: https
+        protocol: HTTPS
+      tls:
+        # No TLS termination, pass identity through.
+        mode: PASSTHROUGH
+      hosts:
+        - istiod.istio-system.svc
+        - istiod-injection.istio-system.svc
+        - istiod-validation.istio-system.svc
+---
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: istiod-discovery-vs
+  namespace: istio-system
+spec:
+  hosts:
+    - istiod.istio-system.svc
+  gateways:
+    - istiod-gateway
+  tls:
+    - match:
+        - port: 443
+          sniHosts:
+            # This is the SNI Host set by Envoy.
+            - istiod.istio-system.svc
+      route:
+        - destination:
+            host: istiod.istio-system.svc
+            port:
+              # Target the XDS gRPC port.
+              number: 15012
+---
+
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: istiod-https-vs
+  namespace: istio-system
+spec:
+  hosts:
+    - istiod-injection.istio-system.svc
+    - istiod-validation.istio-system.svc
+  gateways:
+    - istiod-gateway
+  tls:
+    - match:
+        - port: 443
+      route:
+        - destination:
+            host: istiod.istio-system.svc
+            port:
+              # Target the https port.
+              number: 15017
+---
+
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: istiod-dr
+  namespace: istio-system
+spec:
+  host: istiod.istio-system.svc
+  trafficPolicy:
+    loadBalancer:
+      simple: ROUND_ROBIN

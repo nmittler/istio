@@ -9,8 +9,9 @@ subsets:
 - addresses:
   - ip: {{ .Values.global.remotePilotAddress }}
   ports:
-  - port: 15012
-    name: tcp-istiod
+  # Assumes that istiod has been exposed on via the ingress gateway (see samples/istiod-gateway)
+  - port: 443
+    name: https
   {{- else if regexMatch "^([0-9]*\\.){3}[0-9]*$" .Values.global.remotePilotAddress }}
 apiVersion: v1
 kind: Endpoints
@@ -21,8 +22,9 @@ subsets:
 - addresses:
   - ip: {{ .Values.global.remotePilotAddress }}
   ports:
-  - port: 15012
-    name: tcp-istiod
+  # Assumes that istiod has been exposed on via the ingress gateway (see samples/istiod-gateway)
+  - port: 443
+    name: https
   {{- end }}
 ---
 {{- end }}

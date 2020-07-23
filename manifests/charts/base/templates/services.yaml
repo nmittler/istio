@@ -8,11 +8,13 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   ports:
-  - port: 15012
-    name: tcp-istiod
+  # Assumes that istiod has been exposed on via the ingress gateway (see samples/istiod-gateway)
+  - port: 443
+    name: https
   clusterIP: None
   {{- else }}
-# when istiod isn't enabled in remote cluster, we can use istiod service name
+# For central istiod (i.e. when istiod isn't enabled in remote cluster), we can use the
+# istiod service name for discovery.
 apiVersion: v1
 kind: Service
 metadata:
@@ -20,8 +22,49 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   ports:
-  - port: 15012
-    name: tcp-istiod
+    # Assumes that istiod has been exposed on via the ingress gateway (see samples/istiod-gateway)
+    - port: 443
+    name: https
+  # if the remotePilotAddress is IP addr, we use clusterIP: None.
+  # else, we use externalName
+  {{- if regexMatch "^([0-9]*\\.){3}[0-9]*$" .Values.global.remotePilotAddress }}
+  clusterIP: None
+  {{- else }}
+  type: ExternalName
+  externalName: {{ .Values.global.remotePilotAddress }}
+  {{- end }}
+---
+# For central istiod, use a separate hostname for injection to allow use of the same ingress port (443).
+apiVersion: v1
+kind: Service
+metadata:
+  name: istiod-injection
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    # Assumes that istiod has been exposed on via the ingress gateway (see samples/istiod-gateway)
+    - port: 443
+    name: https
+  # if the remotePilotAddress is IP addr, we use clusterIP: None.
+  # else, we use externalName
+  {{- if regexMatch "^([0-9]*\\.){3}[0-9]*$" .Values.global.remotePilotAddress }}
+  clusterIP: None
+  {{- else }}
+  type: ExternalName
+  externalName: {{ .Values.global.remotePilotAddress }}
+  {{- end }}
+---
+# For central istiod, use a separate hostname for validation to allow use of the same ingress port (443).
+apiVersion: v1
+kind: Service
+metadata:
+  name: istiod-validation
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    # Assumes that istiod has been exposed on via the ingress gateway (see samples/istiod-gateway)
+    - port: 443
+    name: https
   # if the remotePilotAddress is IP addr, we use clusterIP: None.
   # else, we use externalName
   {{- if regexMatch "^([0-9]*\\.){3}[0-9]*$" .Values.global.remotePilotAddress }}

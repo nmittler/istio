@@ -15,6 +15,7 @@
 package istio
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -29,11 +30,9 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"gopkg.in/yaml.v2"
+	meshAPI "istio.io/api/mesh/v1alpha1"
 	kubeApiCore "k8s.io/api/core/v1"
 	kubeApiMeta "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-
-	meshAPI "istio.io/api/mesh/v1alpha1"
 
 	pkgAPI "istio.io/istio/operator/pkg/apis/istio/v1alpha1"
 	"istio.io/istio/pilot/pkg/leaderelection"
@@ -201,16 +200,22 @@ func deploy(ctx resource.Context, env *kube.Environment, cfg Config) (Instance, 
 		if env.IsControlPlaneCluster(cluster) {
 			cluster := cluster
 			errG.Go(func() error {
+				// Install the Istio control plane.
 				if err := deployControlPlane(i, cfg, cluster, iopFile); err != nil {
 					return fmt.Errorf("failed deploying control plane to cluster %s: %v", cluster.Name(), err)
 				}
+
+				// Expose istiod via the ingress gateway so that it can be accessed by remote clusters.
+				if err := applyIstiodGateway(ctx, cfg, cluster); err != nil {
+					return fmt.Errorf("failed applying istiod gateway for cluster %s: %v", cluster.Name(), err)
+				}
 				return nil
 			})
-			if isCentralIstio(env, cfg) && env.IsControlPlaneCluster(cluster) {
+			/*if isCentralIstio(env, cfg) && env.IsControlPlaneCluster(cluster) {
 				errG.Go(func() error {
 					return patchIstiodCustomHost(cfg, cluster)
 				})
-			}
+			}*/
 		}
 	}
 
@@ -275,7 +280,7 @@ func deploy(ctx resource.Context, env *kube.Environment, cfg Config) (Instance, 
 	return i, nil
 }
 
-func patchIstiodCustomHost(cfg Config, cluster resource.Cluster) error {
+/*func patchIstiodCustomHost(cfg Config, cluster resource.Cluster) error {
 	var remoteIstiodAddress net.TCPAddr
 	if err := retry.UntilSuccess(func() error {
 		var err error
@@ -309,7 +314,7 @@ spec:
 		return fmt.Errorf("failed to patch istiod with ISTIOD_CUSTOM_HOST: %v", err)
 	}
 	return nil
-}
+}*/
 
 func initIOPFile(cfg Config, env *kube.Environment, iopFile string, valuesYaml string) error {
 	operatorYaml := cfg.IstioOperatorConfigYAML(valuesYaml)
@@ -391,6 +396,20 @@ spec:
 `, cfg.SystemNamespace))
 }
 
+func applyIstiodGateway(ctx resource.Context, cfg Config, cluster resource.Cluster) error {
+	// Read the sample file for exposing istiod via ingress.
+	yamlContent, err := ioutil.ReadFile(filepath.Join(env.IstioSrc, "samples/istiod-gateway/istiod-gateway.yaml"))
+	if err != nil {
+		return err
+	}
+
+	// Replace the istio-system namespace with the configured system namespace.
+	yamlContent = bytes.ReplaceAll(yamlContent, []byte("istio-system"), []byte(cfg.SystemNamespace))
+
+	// Apply the yaml to expose the ingress.
+	return ctx.Config(cluster).ApplyYAML(cfg.SystemNamespace, string(yamlContent))
+}
+
 func deployControlPlane(c *operatorComponent, cfg Config, cluster resource.Cluster, iopFile string) (err error) {
 	// Create an istioctl to configure this cluster.
 	istioCtl, err := istioctl.New(c.ctx, istioctl.Config{
@@ -430,10 +449,7 @@ func deployControlPlane(c *operatorComponent, cfg Config, cluster resource.Clust
 				"--set", "values.global.network="+networkName)
 		}
 
-		if c.environment.IsControlPlaneCluster(cluster) {
-			// Expose Istiod through ingress to allow remote clusters to connect
-			installSettings = append(installSettings, "--set", "values.global.meshExpansion.enabled=true")
-		} else {
+		if !c.environment.IsControlPlaneCluster(cluster) {
 			installSettings = append(installSettings, "--set", "profile=remote")
 			controlPlaneCluster, err := c.environment.GetControlPlaneCluster(cluster)
 			if err != nil {

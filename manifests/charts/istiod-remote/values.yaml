@@ -71,7 +71,7 @@ sidecarInjectorWebhook:
 
 istiodRemote:
   # Sidecar injector mutating webhook configuration url
-  # For example: https://$remotePilotAddress:15017/inject
+  # For example: https://istiod-injection.istio-system.svc/inject
   injectionURL: ""
 
 # Revision is set as 'version' label and part of the resource names when installing multiple control planes.

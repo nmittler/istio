@@ -54,6 +54,16 @@ var (
 
 	KubernetesCAProvider = "kubernetes"
 	IstiodCAProvider     = "istiod"
+
+	// istiodServiceNames provides all service names that will appear in istiod's server cert
+	// as subject alt names.
+	istiodServiceNames = []string{
+		"istiod",
+		"istiod-remote",
+		"istio-pilot",
+		"istiod-injection",
+		"istiod-validation",
+	}
 )
 
 // CertController can create certificates signed by K8S server.
@@ -127,7 +137,7 @@ func (s *Server) initDNSCerts(hostname, customHost, namespace string) error {
 
 	// The first is the recommended one, also used by Apiserver for webhooks.
 	// add a few known hostnames
-	for _, altName := range []string{"istiod", "istiod-remote", "istio-pilot"} {
+	for _, altName := range istiodServiceNames {
 		name := fmt.Sprintf("%v.%v.svc", altName, namespace)
 		if name == hostname || name == customHost {
 			continue

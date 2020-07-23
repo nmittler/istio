@@ -18,5 +18,5 @@ base:
   enableCRDTemplates: false
 
   # Validation webhook configuration url
-  # For example: https://$remotePilotAddress:15017/validate
+  # For example: https://istiod-validation.istio-system.svc/validate
   validationURL: ""

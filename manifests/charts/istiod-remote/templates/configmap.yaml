@@ -93,7 +93,7 @@
       {{- end }}
 
       {{- if .Values.global.remotePilotAddress }}
-      discoveryAddress: {{ printf "istiod-remote.%s.svc" .Release.Namespace }}:15012
+      discoveryAddress: {{ printf "istiod-remote.%s.svc" .Release.Namespace }}:443
       {{- else }}
       discoveryAddress: istiod{{- if not (eq .Values.revision "") }}-{{ .Values.revision }}{{- end }}.{{.Release.Namespace}}.svc:15012
       {{- end }}
